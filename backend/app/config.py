@@ -3,6 +3,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 from typing import Optional
 import logging
+import os
+
+# Resolve .env relative to this file's directory (backend/app/config.py → backend/.env)
+# This makes loading work regardless of the current working directory.
+_ENV_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +34,7 @@ class Settings(BaseSettings):
     mock_mode: bool = True  # default True during development
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore"

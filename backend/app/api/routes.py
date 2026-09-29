@@ -414,7 +414,7 @@ async def list_sessions():
         # Query supabase for recent sessions
         from app.db.supabase_client import supabase
         
-        response = supabase.table("sessions")\
+        response = supabase.table("research_sessions")\
             .select("id, original_query, status, created_at")\
             .order("created_at", desc=True)\
             .limit(20)\

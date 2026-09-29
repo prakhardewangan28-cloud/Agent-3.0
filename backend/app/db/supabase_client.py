@@ -337,10 +337,61 @@ async def insert_sources(
         Exception: If database operation fails
     """
     try:
-        # Add session_id to each source
+        # Add session_id to each source and sanitise published_date.
+        # SerpAPI Scholar results sometimes return citation strings
+        # (e.g. "L Chang, ... 2022 - Elsevier") in the published_date field
+        # instead of a valid ISO timestamp. Postgres rejects the entire batch
+        # when any value is unparseable, so we null-out anything that isn't a
+        # valid ISO 8601 / RFC 3339 string before inserting.
+        from datetime import datetime, timezone
+
+        def _valid_timestamp(v) -> bool:
+            """Return True if v is a non-empty string parseable as a timestamp."""
+            if not isinstance(v, str) or not v.strip():
+                return False
+            for fmt in (
+                "%Y-%m-%dT%H:%M:%S%z",
+                "%Y-%m-%dT%H:%M:%S.%f%z",
+                "%Y-%m-%dT%H:%M:%SZ",
+                "%Y-%m-%d %H:%M:%S%z",
+                "%Y-%m-%d",
+            ):
+                try:
+                    datetime.strptime(v.strip(), fmt)
+                    return True
+                except ValueError:
+                    continue
+            return False
+
         for source in sources:
             source["session_id"] = session_id
-            
+            pd = source.get("published_date")
+            if pd is not None and not _valid_timestamp(pd):
+                logger.debug(
+                    "Nullifying unparseable published_date for source %s: %r",
+                    source.get("url", "?"),
+                    str(pd)[:60],
+                )
+                source["published_date"] = None
+
+            # Normalise credibility_score to [0, 1] range required by the
+            # DB CHECK constraint. The credibility service outputs 0-100.
+            cs = source.get("credibility_score")
+            if cs is not None:
+                cs = float(cs)
+                if cs > 1.0:
+                    # Scale from 0-100 down to 0-1
+                    cs = round(cs / 100.0, 6)
+                source["credibility_score"] = cs
+
+            # Normalise ai_generation_confidence to [0, 1] (same constraint)
+            ac = source.get("ai_generation_confidence")
+            if ac is not None:
+                ac = float(ac)
+                if ac > 1.0:
+                    ac = round(ac / 100.0, 6)
+                source["ai_generation_confidence"] = ac
+
         response = supabase.table("sources").insert(sources).execute()
         logger.info(f"Inserted {len(response.data)} sources for session {session_id}")
         return response.data

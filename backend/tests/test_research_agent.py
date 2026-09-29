@@ -193,13 +193,21 @@ async def test_score_node_sorts_by_credibility():
 async def test_run_research_with_refinement():
     """Test run_research_with_refinement continues from refined query"""
     with patch("app.config.settings.mock_mode", True):
-        # Mock create_session to return a session
-        with patch("app.db.supabase_client.create_session", new_callable=AsyncMock) as mock_session:
+        # Mock create_session and insert_sources so no real Supabase UUID is needed.
+        # The session_id "test-session-123" is not a valid UUID, so DB operations
+        # must be intercepted before they reach Postgres.
+        with patch("app.db.supabase_client.create_session", new_callable=AsyncMock) as mock_session, \
+             patch("app.agents.research_agent.insert_sources", new_callable=AsyncMock) as mock_insert:
             mock_session.return_value = {"id": "test-session-123"}
-            
+            # Return minimal stored-source objects that downstream nodes expect
+            mock_insert.return_value = [
+                {"id": i + 1, "url": f"http://example.com/{i}", "session_id": "test-session-123"}
+                for i in range(3)
+            ]
+
             chosen_direction = "Apple Inc. stock performance in 2024 analysis"
             result = await run_research_with_refinement("test-session-123", chosen_direction)
-            
+
             assert result["status"] == "complete"
             assert result["refined_query"] == chosen_direction
             assert "final_report" in result

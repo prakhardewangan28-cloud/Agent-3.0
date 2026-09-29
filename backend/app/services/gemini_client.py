@@ -61,9 +61,12 @@ async def embed(text: str, dim: int = 1536) -> list[float]:
         return [random.random() for _ in range(dim)]
     
     # Real implementation
+    # Use models/gemini-embedding-001 — the stable embedding model available
+    # via the google-genai SDK for AQ. keys. text-embedding-004 is not
+    # supported on the v1beta endpoint used by this SDK version.
     client = get_client()
     result = client.models.embed_content(
-        model="text-embedding-004",
+        model="models/gemini-embedding-001",
         contents=text,
         config={"output_dimensionality": dim},
     )

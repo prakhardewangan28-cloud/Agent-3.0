@@ -19,8 +19,11 @@ async def test_extract_claims_from_text_basic():
     """Test basic claim extraction from text"""
     # Need longer text (minimum 100 chars)
     source_text = "Paris is the capital of France and one of the most visited cities in the world. The Eiffel Tower was completed in 1889 and has become an iconic symbol of French culture."
-    
-    claims = await extract_claims_from_text(source_text)
+
+    # Run in mock_mode so extraction uses the deterministic mock path instead
+    # of making a real Gemini API call (avoids transient 503s in CI/CD).
+    with patch("app.config.settings.mock_mode", True):
+        claims = await extract_claims_from_text(source_text)
     
     assert isinstance(claims, list)
     assert len(claims) > 0
@@ -85,12 +88,32 @@ async def test_extract_and_store_claims_basic():
         "credibility_score": 85.0
     }
     session_id = "test-session-uuid"
-    
-    stored_claims = await extract_and_store_claims(source, session_id)
-    
+
+    # "test-session-uuid" is not a valid UUID — mock insert_claims so the
+    # fake ID never reaches Postgres (which enforces UUID syntax on the FK).
+    # Also run in mock_mode=True so claim extraction uses the deterministic mock
+    # path and does not make real Gemini API calls (avoids transient 503s and
+    # keeps the test fast and stable).
+    async def _fake_insert_claims(sess_id, claim_records):
+        return [
+            {
+                "id": i + 1,
+                "claim_text": cr["claim_text"],
+                "source_id": cr["source_id"],
+                "session_id": sess_id,
+                "embedding": cr.get("embedding", [0.0] * 1536),
+                "confidence": cr.get("confidence", 0.9),
+            }
+            for i, cr in enumerate(claim_records)
+        ]
+
+    with patch("app.config.settings.mock_mode", True), \
+         patch("app.db.supabase_client.insert_claims", side_effect=_fake_insert_claims):
+        stored_claims = await extract_and_store_claims(source, session_id)
+
     assert isinstance(stored_claims, list)
     assert len(stored_claims) > 0
-    
+
     # Verify stored claim structure
     for claim in stored_claims:
         assert "id" in claim

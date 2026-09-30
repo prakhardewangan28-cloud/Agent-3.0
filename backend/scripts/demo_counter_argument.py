@@ -86,6 +86,17 @@ async def main():
     else:
         print("No counter-argument generated.")
     
+    # Display LLM call count
+    from app.services.gemini_client import _session_call_count
+    print("=" * 80)
+    print("LLM QUOTA USAGE")
+    print("=" * 80)
+    print(f"Total LLM calls: {_session_call_count}")
+    print(f"Session limit: 5")
+    status_msg = "UNDER LIMIT" if _session_call_count <= 5 else "EXCEEDED LIMIT"
+    print(f"Status: {status_msg}")
+    print()
+    
     # Display node timings
     timings = result.get("node_timings", {})
     if timings:

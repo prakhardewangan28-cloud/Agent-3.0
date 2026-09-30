@@ -22,11 +22,16 @@ logger = logging.getLogger(__name__)
 
 async def find_similar_claim_pairs(
     session_id: str,
-    similarity_threshold: float = 0.75,
-    max_pairs: int = 50,
+    similarity_threshold: float = 0.80,  # CHANGE 2: Increased from 0.75 to 0.80
+    max_pairs: int = 10,  # CHANGE 2: Reduced from 50 to 10
 ) -> List[Tuple[Dict[str, Any], Dict[str, Any], float]]:
     """
     Find pairs of claims that are semantically similar.
+    
+    CHANGE 2: Pre-filters pairs to reduce LLM calls:
+    - Only pairs with similarity >= 0.80 (very similar)
+    - Max 10 pairs instead of 50
+    - Skips pairs from the same domain
     
     Args:
         session_id: UUID of the research session
@@ -39,17 +44,21 @@ async def find_similar_claim_pairs(
     
     Examples:
         >>> pairs = await find_similar_claim_pairs("session-uuid")
-        >>> len(pairs) <= 50
+        >>> len(pairs) <= 10
         True
         >>> all(a["id"] != b["id"] for a, b, _ in pairs)
         True
     """
-    logger.info(f"Finding similar claim pairs for session {session_id}")
+    logger.info(f"Finding similar claim pairs for session {session_id} (threshold={similarity_threshold}, max={max_pairs})")
     
     # Fetch all claims for the session
     try:
-        from app.db.supabase_client import get_claims_by_session
+        from app.db.supabase_client import get_claims_by_session, get_sources_by_session
         claims = await get_claims_by_session(session_id)
+        sources = await get_sources_by_session(session_id)
+        
+        # Build source_id -> domain mapping
+        source_domain_map = {s["id"]: s.get("domain", "") for s in sources}
     except Exception as e:
         logger.error(f"Failed to fetch claims for session {session_id}: {e}")
         return []
@@ -88,6 +97,13 @@ async def find_similar_claim_pairs(
             if claim_a["id"] == claim_b["id"]:
                 continue
             
+            # CHANGE 2: Skip pairs from same domain
+            domain_a = source_domain_map.get(claim_a.get("source_id"), "")
+            domain_b = source_domain_map.get(claim_b.get("source_id"), "")
+            if domain_a and domain_b and domain_a == domain_b:
+                logger.debug(f"Skipping pair from same domain: {domain_a}")
+                continue
+            
             # Create canonical pair ID (smaller ID first)
             pair_key = tuple(sorted([claim_a["id"], claim_b["id"]]))
             
@@ -113,7 +129,7 @@ async def find_similar_claim_pairs(
                 seen_pairs.add(pair_key)
                 pairs.append((claim_a, claim_b, 0.85))
     
-    logger.info(f"Found {len(pairs)} candidate claim pairs")
+    logger.info(f"Found {len(pairs)} candidate claim pairs (after filtering)")
     return pairs[:max_pairs]
 
 
@@ -267,7 +283,9 @@ def _parse_judgment_json(response: str) -> Dict[str, Any]:
 
 async def detect_conflicts(session_id: str) -> List[Dict[str, Any]]:
     """
-    Detect all conflicts between claims in a session.
+    Detect all conflicts between claims in a session using BATCHED judgment.
+    
+    CHANGE 2: Groups pairs into batches of 5 to reduce LLM calls from N to ceil(N/5).
     
     Args:
         session_id: UUID of the research session
@@ -292,36 +310,136 @@ async def detect_conflicts(session_id: str) -> List[Dict[str, Any]]:
         logger.info("No similar pairs found, no conflicts to detect")
         return []
     
-    logger.info(f"Found {len(pairs)} candidate pairs, judging...")
+    logger.info(f"Found {len(pairs)} candidate pairs, judging in batches...")
     
-    # Judge each pair concurrently
-    tasks = [judge_pair(claim_a, claim_b) for claim_a, claim_b, _ in pairs]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # CHANGE 2: Group pairs into batches of 5
+    BATCH_SIZE = 5
+    batches = [pairs[i:i + BATCH_SIZE] for i in range(0, len(pairs), BATCH_SIZE)]
+    logger.info(f"Created {len(batches)} batches for judgment (batch size: {BATCH_SIZE})")
     
-    # Filter out None and exceptions
-    conflicts = []
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            logger.warning(f"Skipping pair due to error: {result}")
+    # Judge batches sequentially
+    all_conflicts = []
+    for batch_idx, batch in enumerate(batches):
+        logger.info(f"Judging batch {batch_idx + 1}/{len(batches)} ({len(batch)} pairs)")
+        
+        try:
+            batch_conflicts = await _judge_pairs_batch(batch)
+            all_conflicts.extend(batch_conflicts)
+        except Exception as e:
+            logger.error(f"Batch {batch_idx + 1} judgment failed: {e}")
             continue
-        if result is not None:
-            conflicts.append(result)
     
-    if not conflicts:
+    if not all_conflicts:
         logger.info("No conflicts detected (all pairs were agreements or failed)")
         return []
     
     # Batch insert into database
     try:
         from app.db.supabase_client import insert_conflicts
-        stored_conflicts = await insert_conflicts(session_id, conflicts)
+        stored_conflicts = await insert_conflicts(session_id, all_conflicts)
         
-        logger.info(f"Detected {len(stored_conflicts)} conflicts")
+        logger.info(
+            f"Detected {len(stored_conflicts)} conflicts using {len(batches)} LLM calls "
+            f"(was {len(pairs)} calls before batching)"
+        )
         return stored_conflicts
         
     except Exception as e:
         logger.error(f"Failed to insert conflicts: {e}")
         raise
+
+
+async def _judge_pairs_batch(
+    pairs: List[Tuple[Dict[str, Any], Dict[str, Any], float]]
+) -> List[Dict[str, Any]]:
+    """
+    Judge multiple pairs in a SINGLE LLM call.
+    
+    Args:
+        pairs: List of (claim_a, claim_b, similarity) tuples (up to 5)
+    
+    Returns:
+        List of conflict dicts (only conflicts, not agreements)
+    """
+    if not pairs:
+        return []
+    
+    # Mock mode
+    if settings.mock_mode:
+        conflicts = []
+        for claim_a, claim_b, _ in pairs:
+            conflicts.append({
+                "claim_a_id": claim_a["id"],
+                "claim_b_id": claim_b["id"],
+                "conflict_type": "contradiction",
+                "confidence": 0.8,
+                "explanation": "Mock conflict between two similar claims",
+            })
+        return conflicts
+    
+    # Build prompt with all pairs numbered
+    pairs_text = ""
+    for idx, (claim_a, claim_b, sim) in enumerate(pairs, 1):
+        claim_a_text = claim_a.get("claim_text", "")
+        claim_b_text = claim_b.get("claim_text", "")
+        pairs_text += f"\nPair {idx}:\n  Claim A (ID {claim_a['id']}): {claim_a_text}\n  Claim B (ID {claim_b['id']}): {claim_b_text}\n"
+    
+    prompt = f"""You are a fact-comparison engine. For each pair below, determine if the claims contradict, disagree, or agree.
+
+{pairs_text}
+
+For EACH pair, return a judgment. Use these relationships:
+- "contradiction": Claims cannot both be true (mutually exclusive)
+- "disagreement": Claims present conflicting interpretations or emphasis
+- "agreement": Claims support or don't conflict with each other
+
+Return ONLY valid JSON in this format:
+{{
+  "judgments": [
+    {{"pair_id": 1, "claim_a_id": X, "claim_b_id": Y, "relationship": "contradiction", "confidence": 0.9, "explanation": "..."}},
+    {{"pair_id": 2, "claim_a_id": X, "claim_b_id": Y, "relationship": "agreement", "confidence": 0.85, "explanation": "..."}}
+  ]
+}}
+
+Rules:
+- Return ALL {len(pairs)} pairs in order
+- Only "contradiction" and "disagreement" are conflicts
+- "agreement" means no conflict"""
+    
+    try:
+        response = await generate(prompt)
+        
+        # Parse response
+        response_clean = response.strip()
+        if response_clean.startswith("```"):
+            lines = response_clean.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            response_clean = "\n".join(lines).strip()
+        
+        data = json.loads(response_clean)
+        judgments = data.get("judgments", [])
+        
+        # Filter to only conflicts
+        conflicts = []
+        for judgment in judgments:
+            relationship = judgment.get("relationship", "")
+            if relationship in ["contradiction", "disagreement"]:
+                conflicts.append({
+                    "claim_a_id": judgment["claim_a_id"],
+                    "claim_b_id": judgment["claim_b_id"],
+                    "conflict_type": relationship,
+                    "confidence": judgment.get("confidence", 0.5),
+                    "explanation": judgment.get("explanation", ""),
+                })
+        
+        return conflicts
+    
+    except Exception as e:
+        logger.error(f"Batched judgment failed: {e}")
+        return []
 
 
 # ============================================================================

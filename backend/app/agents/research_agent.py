@@ -649,6 +649,10 @@ async def run_research(query: str) -> Dict[str, Any]:
         >>> "final_report" in result
         True
     """
+    # Reset session call counter for quota management
+    from app.services.gemini_client import reset_session_counter
+    reset_session_counter()
+    
     # Create session
     session = await create_session(query)
     session_id = session["id"]

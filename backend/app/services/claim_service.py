@@ -350,7 +350,9 @@ async def extract_claims_batch(
     top_n: int = 10,
 ) -> Dict[str, Any]:
     """
-    Extract claims from top N sources by credibility.
+    Extract claims from top N sources by credibility using BATCHED LLM calls.
+    
+    CHANGE 1: Groups sources into batches of 5 to reduce LLM calls from N to ceil(N/5).
     
     Args:
         sources: List of source dicts (must have credibility_score and id)
@@ -371,7 +373,7 @@ async def extract_claims_batch(
         True
     """
     logger.info(
-        f"Starting batch claim extraction for {len(sources)} sources "
+        f"Starting BATCHED claim extraction for {len(sources)} sources "
         f"(processing top {top_n})"
     )
     
@@ -396,43 +398,44 @@ async def extract_claims_batch(
         }
     
     logger.info(
-        f"Processing {len(top_sources)} sources "
+        f"Processing {len(top_sources)} sources in batches of 5 "
         f"(credibility range: {top_sources[-1].get('credibility_score', 0):.1f} "
         f"to {top_sources[0].get('credibility_score', 0):.1f})"
     )
     
-    # Process sources concurrently
-    tasks = [
-        extract_and_store_claims(source, session_id)
-        for source in top_sources
-    ]
+    # CHANGE 1: Group sources into batches of 5
+    BATCH_SIZE = 5
+    batches = [top_sources[i:i + BATCH_SIZE] for i in range(0, len(top_sources), BATCH_SIZE)]
     
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    logger.info(f"Created {len(batches)} batches (batch size: {BATCH_SIZE})")
     
-    # Analyze results
+    # Process batches sequentially (to stay under quota)
     total_claims = 0
     per_source = {}
     successful = 0
     failed = 0
     
-    for source, result in zip(top_sources, results):
-        source_id = source.get("id", "unknown")
+    for batch_idx, batch in enumerate(batches):
+        logger.info(f"Processing batch {batch_idx + 1}/{len(batches)} ({len(batch)} sources)")
         
-        if isinstance(result, Exception):
-            logger.error(
-                f"Source {source_id} failed: {result}"
-            )
-            per_source[source_id] = 0
-            failed += 1
-        else:
-            claim_count = len(result)
-            per_source[source_id] = claim_count
-            total_claims += claim_count
-            successful += 1
+        try:
+            # Extract claims for entire batch in ONE LLM call
+            batch_results = await _extract_claims_batch_single_call(batch, session_id)
             
-            logger.info(
-                f"Source {source_id}: extracted {claim_count} claims"
-            )
+            # Process results
+            for source_id, claims in batch_results.items():
+                per_source[source_id] = len(claims)
+                total_claims += len(claims)
+                successful += 1
+                logger.info(f"Source {source_id}: extracted {len(claims)} claims")
+        
+        except Exception as e:
+            logger.error(f"Batch {batch_idx + 1} failed: {e}")
+            # Mark all sources in batch as failed
+            for source in batch:
+                source_id = source.get("id", "unknown")
+                per_source[source_id] = 0
+                failed += 1
     
     summary = {
         "total_claims": total_claims,
@@ -443,7 +446,138 @@ async def extract_claims_batch(
     
     logger.info(
         f"Batch extraction complete: {total_claims} total claims from "
-        f"{successful}/{len(top_sources)} sources"
+        f"{successful}/{len(top_sources)} sources using {len(batches)} LLM calls"
     )
+    
+    return summary
+
+
+async def _extract_claims_batch_single_call(
+    sources: List[Dict[str, Any]],
+    session_id: str,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Extract claims from multiple sources in a SINGLE LLM call.
+    
+    Args:
+        sources: List of source dicts (up to 5)
+        session_id: UUID of the research session
+    
+    Returns:
+        Dict mapping source_id to list of claims
+    """
+    from app.db.supabase_client import insert_claims
+    
+    # Build prompt with all sources labeled by ID
+    sources_text = ""
+    for idx, source in enumerate(sources):
+        source_id = source.get("id")
+        title = source.get("title", "")
+        snippet = source.get("snippet", "")
+        text = f"{title}\n{snippet}".strip()
+        
+        sources_text += f"\n[SOURCE_{source_id}]\n{text}\n"
+    
+    # Mock mode
+    if settings.mock_mode:
+        await asyncio.sleep(0.1)
+        results = {}
+        for source in sources:
+            source_id = source.get("id")
+            mock_claims = [
+                {
+                    "claim": f"Mock claim 1 from source {source_id}",
+                    "confidence": 0.9,
+                    "source_id": source_id,
+                    "session_id": session_id
+                },
+                {
+                    "claim": f"Mock claim 2 from source {source_id}",
+                    "confidence": 0.7,
+                    "source_id": source_id,
+                    "session_id": session_id
+                }
+            ]
+            results[source_id] = mock_claims
+            
+            # Insert into DB
+            await insert_claims(mock_claims, session_id)
+        
+        return results
+    
+    # Real mode: single LLM call for all sources
+    prompt = f"""You are a fact-extraction engine. Extract up to 3 verifiable factual claims from EACH source below. Return JSON with claims grouped by source ID.
+
+Sources:
+{sources_text}
+
+Return ONLY valid JSON in this format:
+{{
+  "claims_by_source": {{
+    "SOURCE_ID_1": [{{"claim": "...", "confidence": 0.9}}],
+    "SOURCE_ID_2": [{{"claim": "...", "confidence": 0.85}}]
+  }}
+}}
+
+Rules:
+- Extract ONLY factual, verifiable claims
+- Each claim must be self-contained
+- Assign confidence 0-1 based on how verifiable the claim is
+- Use the exact source IDs from above (e.g., "644", "645")"""
+    
+    try:
+        response = await generate(prompt)
+        
+        # Parse response
+        response_clean = response.strip()
+        if response_clean.startswith("```"):
+            lines = response_clean.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            response_clean = "\n".join(lines).strip()
+        
+        data = json.loads(response_clean)
+        claims_by_source = data.get("claims_by_source", {})
+        
+        # Process and store claims
+        results = {}
+        for source in sources:
+            source_id = source.get("id")
+            source_id_str = str(source_id)
+            raw_claims = claims_by_source.get(source_id_str, [])
+            
+            # Process claims
+            processed_claims = []
+            for claim_data in raw_claims:
+                confidence = max(0.0, min(1.0, float(claim_data.get("confidence", 0.5))))
+                source_cred = source.get("credibility_score", 50.0)
+                adjusted_confidence = confidence * (source_cred / 100.0)
+                
+                # Embed claim
+                embedding = await embed_claim(claim_data["claim"])
+                
+                claim_record = {
+                    "claim": claim_data["claim"],
+                    "confidence": adjusted_confidence,
+                    "source_id": source_id,
+                    "session_id": session_id,
+                    "embedding": embedding
+                }
+                processed_claims.append(claim_record)
+            
+            # Insert into DB
+            if processed_claims:
+                await insert_claims(processed_claims, session_id)
+            
+            results[source_id] = processed_claims
+        
+        return results
+    
+    except Exception as e:
+        logger.error(f"Batched claim extraction failed: {e}")
+        # Return empty results for all sources
+        return {source.get("id"): [] for source in sources}
     
     return summary

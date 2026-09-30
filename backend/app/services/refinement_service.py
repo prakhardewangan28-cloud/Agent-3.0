@@ -54,24 +54,38 @@ async def is_vague(query: str) -> bool:
     if len(query) < 3:
         return False
     
-    # Rule-based early exits
+    # CHANGE 3: Rule-based pre-check to avoid LLM calls
     word_count = len(query.split())
+    query_lower = query.lower()
     
-    # Very short queries are likely vague
-    if word_count < 4:
-        logger.info(f"Query classified as vague: True (word count: {word_count})")
+    # Rule 1: Single word or two words → definitely vague
+    if word_count <= 2:
+        logger.info(f"Query classified as vague: True (only {word_count} words, no LLM call)")
         return True
     
-    # Single ambiguous word (whole query match)
-    if query.lower() in AMBIGUOUS_WORDS:
-        logger.info(f"Query classified as vague: True (ambiguous word: {query})")
-        return True
+    # Rule 2: Contains question word + enough words → probably specific
+    question_words = ["compare", "what", "how", "why", "when", "which", "explain", "who", "where"]
+    has_question_word = any(qw in query_lower for qw in question_words)
+    
+    # Check for ambiguous single-word terms that might be the whole query
+    ambiguous_terms = ["apple", "jaguar", "python", "mercury", "spring", "bank", "mouse"]
+    is_ambiguous_term = any(term == query_lower for term in ambiguous_terms)
+    
+    if word_count >= 6 and has_question_word and not is_ambiguous_term:
+        logger.info(
+            f"Query classified as specific: True "
+            f"(>= 6 words, has question word, no LLM call)"
+        )
+        return False
     
     # Mock mode: simple word count rule
     if settings.mock_mode:
         result = word_count < 6
         logger.info(f"Query classified as vague: {result} (MOCK MODE, word count: {word_count})")
         return result
+    
+    # Edge case: Need LLM to decide
+    logger.info(f"Edge case detected, calling LLM to decide (word_count={word_count})")
     
     # Real mode: use LLM
     prompt = f"""You are a query clarity classifier. Determine if the user's query is specific enough to research directly, or if it needs clarification.

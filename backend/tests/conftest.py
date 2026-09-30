@@ -4,6 +4,15 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def reset_gemini_counter():
+    """Reset Gemini session counter before each test."""
+    from app.services.gemini_client import reset_session_counter
+    reset_session_counter()
+    yield
+    reset_session_counter()
+
+
 @pytest.fixture
 def client():
     """

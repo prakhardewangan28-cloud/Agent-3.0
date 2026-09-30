@@ -82,7 +82,7 @@ async def main():
         print(f"Text: {text}")
         print()
         
-        embedding = await embed(text, dim=768)
+        embedding = await embed(text, dim=1536)  # Production dimension
         
         print("✓ SUCCESS")
         print(f"Embedding dimensions: {len(embedding)}")

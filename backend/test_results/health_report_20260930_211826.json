@@ -1,0 +1,164 @@
+{
+  "timestamp": "2026-09-30T21:18:26.020284",
+  "summary": {
+    "total_tests": 14,
+    "passed": 14,
+    "failed": 0,
+    "success_rate": 100.0,
+    "avg_response_time_ms": 835.37
+  },
+  "endpoints": {
+    "health": {
+      "passed": 2,
+      "failed": 0,
+      "durations": [
+        295.65,
+        2.61
+      ]
+    },
+    "research": {
+      "passed": 10,
+      "failed": 0,
+      "durations": [
+        1188.84,
+        1656.41,
+        2742.28,
+        1289.94,
+        1323.25,
+        1282.69,
+        473.36,
+        211.73,
+        487.85,
+        3.41
+      ]
+    },
+    "sessions": {
+      "passed": 1,
+      "failed": 0,
+      "durations": [
+        527.88
+      ]
+    },
+    "sessions?limit=5": {
+      "passed": 1,
+      "failed": 0,
+      "durations": [
+        209.28
+      ]
+    }
+  },
+  "tests": [
+    {
+      "endpoint": "/health",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 295.65,
+      "details": "Status: ok",
+      "timestamp": "2026-09-30T21:18:02.774595"
+    },
+    {
+      "endpoint": "/health",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 2.61,
+      "details": "Status: ok",
+      "timestamp": "2026-09-30T21:18:02.777204"
+    },
+    {
+      "endpoint": "/research/start",
+      "method": "POST",
+      "status": "\u2713 PASS",
+      "duration_ms": 1188.84,
+      "details": "Session: 4c25e68a..., Status: in_progress",
+      "timestamp": "2026-09-30T21:18:04.195425"
+    },
+    {
+      "endpoint": "/research/start",
+      "method": "POST",
+      "status": "\u2713 PASS",
+      "duration_ms": 1656.41,
+      "details": "Session: 6d62773f..., Status: in_progress",
+      "timestamp": "2026-09-30T21:18:05.851833"
+    },
+    {
+      "endpoint": "/research/4c25e68a...",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 2742.28,
+      "details": "Status: complete, Sources: 9",
+      "timestamp": "2026-09-30T21:18:19.009190"
+    },
+    {
+      "endpoint": "/research/4c25e68a...",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 1289.94,
+      "details": "Status: complete, Claims: 0",
+      "timestamp": "2026-09-30T21:18:20.299133"
+    },
+    {
+      "endpoint": "/research/6d62773f...",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 1323.25,
+      "details": "Status: in_progress, Sources: 0",
+      "timestamp": "2026-09-30T21:18:21.622384"
+    },
+    {
+      "endpoint": "/research/6d62773f...",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 1282.69,
+      "details": "Status: in_progress, Claims: 0",
+      "timestamp": "2026-09-30T21:18:22.905078"
+    },
+    {
+      "endpoint": "/sessions",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 527.88,
+      "details": "Total sessions: 20",
+      "timestamp": "2026-09-30T21:18:23.833728"
+    },
+    {
+      "endpoint": "/sessions?limit=5",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 209.28,
+      "details": "Limited to 20 sessions",
+      "timestamp": "2026-09-30T21:18:24.043012"
+    },
+    {
+      "endpoint": "/research/4c25e68a.../report",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 473.36,
+      "details": "Report length: 104 chars",
+      "timestamp": "2026-09-30T21:18:24.919445"
+    },
+    {
+      "endpoint": "/research/4c25e68a.../report",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 211.73,
+      "details": "Report length: 104 chars, Markdown: False",
+      "timestamp": "2026-09-30T21:18:25.131175"
+    },
+    {
+      "endpoint": "/research/invalid-uuid",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 487.85,
+      "details": "Expected 404, got 404",
+      "timestamp": "2026-09-30T21:18:26.013339"
+    },
+    {
+      "endpoint": "/research/start (empty query)",
+      "method": "POST",
+      "status": "\u2713 PASS",
+      "duration_ms": 3.41,
+      "details": "Expected 422, got 422",
+      "timestamp": "2026-09-30T21:18:26.016751"
+    }
+  ]
+}

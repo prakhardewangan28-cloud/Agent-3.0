@@ -1,0 +1,98 @@
+{
+  "timestamp": "2026-09-30T21:17:08.902303",
+  "summary": {
+    "total_tests": 8,
+    "passed": 3,
+    "failed": 5,
+    "success_rate": 37.5,
+    "avg_response_time_ms": 136.625
+  },
+  "endpoints": {
+    "health": {
+      "passed": 2,
+      "failed": 0,
+      "durations": [
+        287.89,
+        3.0
+      ]
+    },
+    "research": {
+      "passed": 1,
+      "failed": 5,
+      "durations": [
+        268.1,
+        2.0,
+        269.94,
+        2.37,
+        257.7,
+        2.0
+      ]
+    }
+  },
+  "tests": [
+    {
+      "endpoint": "/health",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 287.89,
+      "details": "Status: ok",
+      "timestamp": "2026-09-30T21:16:57.031600"
+    },
+    {
+      "endpoint": "/health",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 3.0,
+      "details": "Status: ok",
+      "timestamp": "2026-09-30T21:16:57.034602"
+    },
+    {
+      "endpoint": "/research/start",
+      "method": "POST",
+      "status": "\u2717 FAIL",
+      "duration_ms": 268.1,
+      "details": "Session: N/A..., Status: N/A",
+      "timestamp": "2026-09-30T21:16:57.556132"
+    },
+    {
+      "endpoint": "/research/start",
+      "method": "POST",
+      "status": "\u2717 FAIL",
+      "duration_ms": 2.0,
+      "details": "Session: N/A..., Status: N/A",
+      "timestamp": "2026-09-30T21:16:57.558130"
+    },
+    {
+      "endpoint": "/research/sessions",
+      "method": "GET",
+      "status": "\u2717 FAIL",
+      "duration_ms": 269.94,
+      "details": "Total sessions: 0",
+      "timestamp": "2026-09-30T21:17:08.238786"
+    },
+    {
+      "endpoint": "/research/sessions?limit=5",
+      "method": "GET",
+      "status": "\u2717 FAIL",
+      "duration_ms": 2.37,
+      "details": "Limited to 0 sessions",
+      "timestamp": "2026-09-30T21:17:08.241160"
+    },
+    {
+      "endpoint": "/research/invalid-uuid",
+      "method": "GET",
+      "status": "\u2713 PASS",
+      "duration_ms": 257.7,
+      "details": "Expected 404, got 404",
+      "timestamp": "2026-09-30T21:17:08.894199"
+    },
+    {
+      "endpoint": "/research/start (empty query)",
+      "method": "POST",
+      "status": "\u2717 FAIL",
+      "duration_ms": 2.0,
+      "details": "Expected 422, got 404",
+      "timestamp": "2026-09-30T21:17:08.896197"
+    }
+  ]
+}

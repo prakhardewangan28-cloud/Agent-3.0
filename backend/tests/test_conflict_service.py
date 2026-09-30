@@ -213,11 +213,11 @@ async def test_detect_conflicts_stores_via_insert():
     }
     
     with patch("app.services.conflict_service.find_similar_claim_pairs", new_callable=AsyncMock) as mock_pairs_fn, \
-         patch("app.services.conflict_service.judge_pair", new_callable=AsyncMock) as mock_judge, \
+         patch("app.services.conflict_service._judge_pairs_batch", new_callable=AsyncMock) as mock_judge_batch, \
          patch("app.db.supabase_client.insert_conflicts", new_callable=AsyncMock) as mock_insert:
         
         mock_pairs_fn.return_value = mock_pairs
-        mock_judge.return_value = mock_conflict
+        mock_judge_batch.return_value = [mock_conflict]  # Returns list of conflicts
         mock_insert.return_value = [mock_stored]
         
         conflicts = await detect_conflicts("test-session")

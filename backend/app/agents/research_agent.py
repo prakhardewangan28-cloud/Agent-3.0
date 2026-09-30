@@ -30,6 +30,7 @@ from app.services.gemini_client import generate
 from app.db.supabase_client import (
     create_session,
     update_session_status,
+    update_session_final_report,
     insert_sources,
     get_claims_by_session,
 )
@@ -505,11 +506,12 @@ Based on analysis of {len(stored_sources)} sources, this report synthesizes the 
         state["final_report"] = report
         state["status"] = "complete"
         
-        # Update session status in DB
+        # Update session status and final_report in DB
         try:
-            await update_session_status(state["session_id"], "completed")
+            await update_session_status(state["session_id"], "complete")
+            await update_session_final_report(state["session_id"], report)
         except Exception as e:
-            logger.warning(f"Failed to update session status: {e}")
+            logger.warning(f"Failed to update session in database: {e}")
         
         return state
         

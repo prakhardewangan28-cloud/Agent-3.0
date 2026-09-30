@@ -286,6 +286,35 @@ async def update_session_status(
         raise
 
 
+async def update_session_final_report(
+    session_id: str,
+    final_report: str
+) -> Dict[str, Any]:
+    """
+    Update research session with final report.
+    
+    Args:
+        session_id: UUID of the session
+        final_report: Markdown research report
+        
+    Returns:
+        Updated session record
+        
+    Raises:
+        Exception: If database operation fails
+    """
+    try:
+        response = supabase.table("research_sessions")\
+            .update({"final_report": final_report})\
+            .eq("id", session_id)\
+            .execute()
+        logger.info(f"Updated session {session_id} with final report ({len(final_report)} chars)")
+        return response.data[0]
+    except Exception as e:
+        logger.error(f"Failed to update final report for session {session_id}: {e}")
+        raise
+
+
 async def get_session(session_id: str) -> Optional[Dict[str, Any]]:
     """
     Get a research session by ID.

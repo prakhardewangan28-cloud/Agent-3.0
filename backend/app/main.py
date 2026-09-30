@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     # Check Supabase
     try:
         from app.db.supabase_client import supabase
-        response = supabase.table("sessions").select("id").limit(1).execute()
+        response = supabase.table("research_sessions").select("id").limit(1).execute()
         logger.info("✓ Supabase connection: OK")
     except Exception as e:
         logger.warning(f"✗ Supabase connection: FAILED - {e}")

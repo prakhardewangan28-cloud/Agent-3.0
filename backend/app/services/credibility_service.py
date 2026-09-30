@@ -95,13 +95,13 @@ def score_source(source: Dict[str, Any]) -> Dict[str, Any]:
         score += domain_suffix_score
         breakdown["domain_suffix"] = domain_suffix_score
     
-    # RULE 2: Trusted domain allowlist
-    if domain in TRUSTED_DOMAINS:
+    # RULE 2: Trusted domain allowlist (supports subdomains)
+    if _is_trusted_domain(domain):
         score += 25
         breakdown["trusted_domain"] = 25
     
-    # RULE 3: Low-trust domain denylist
-    if domain in LOW_TRUST_DOMAINS:
+    # RULE 3: Low-trust domain denylist (supports subdomains)
+    if _is_low_trust_domain(domain):
         score -= 30
         breakdown["low_trust_domain"] = -30
     
@@ -249,6 +249,60 @@ def _has_author_byline(title: str, snippet: str) -> bool:
     """
     combined_text = f"{title} {snippet}"
     return bool(BYLINE_PATTERN.search(combined_text))
+
+
+def _is_trusted_domain(domain: str) -> bool:
+    """
+    Check if domain is in TRUSTED_DOMAINS or is a subdomain of one.
+    
+    Examples:
+        "nasa.gov" -> True (exact match)
+        "science.nasa.gov" -> True (subdomain of nasa.gov)
+        "fakegov.com" -> False
+    
+    Args:
+        domain: Domain to check (e.g., "science.nasa.gov")
+    
+    Returns:
+        True if domain is trusted (exact or subdomain match), False otherwise
+    """
+    domain_lower = domain.lower()
+    
+    # Check exact match
+    if domain_lower in TRUSTED_DOMAINS:
+        return True
+    
+    # Check if it's a subdomain of any trusted domain
+    # e.g., "science.nasa.gov" should match "nasa.gov"
+    for trusted in TRUSTED_DOMAINS:
+        if domain_lower.endswith(f".{trusted}"):
+            return True
+    
+    return False
+
+
+def _is_low_trust_domain(domain: str) -> bool:
+    """
+    Check if domain is in LOW_TRUST_DOMAINS or is a subdomain of one.
+    
+    Args:
+        domain: Domain to check
+    
+    Returns:
+        True if domain is low-trust (exact or subdomain match), False otherwise
+    """
+    domain_lower = domain.lower()
+    
+    # Check exact match
+    if domain_lower in LOW_TRUST_DOMAINS:
+        return True
+    
+    # Check if it's a subdomain of any low-trust domain
+    for untrusted in LOW_TRUST_DOMAINS:
+        if domain_lower.endswith(f".{untrusted}"):
+            return True
+    
+    return False
 
 
 def _score_freshness(published_date: Any) -> int:

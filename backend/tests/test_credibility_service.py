@@ -397,3 +397,41 @@ def test_missing_optional_fields_handled_gracefully():
     assert "score_breakdown" in scored
     assert isinstance(scored["credibility_score"], float)
     assert 0 <= scored["credibility_score"] <= 100
+
+
+def test_trusted_domain_subdomain_match():
+    """Test that subdomains of trusted domains are also trusted."""
+    # science.nasa.gov should match nasa.gov
+    source = {
+        "url": "https://science.nasa.gov/article",
+        "domain": "science.nasa.gov",
+        "title": "NASA Article",
+        "snippet": "This is an article from NASA's science division with detailed information about climate research and findings.",
+        "engine": "google",
+    }
+    
+    result = score_source(source)
+    breakdown = result["score_breakdown"]
+    
+    # Should get both .gov bonus AND trusted domain bonus
+    assert breakdown.get("domain_suffix") == 25
+    assert breakdown.get("trusted_domain") == 25
+    assert result["credibility_score"] >= 50  # At least 50 from those two
+
+
+def test_low_trust_domain_subdomain_match():
+    """Test that subdomains of low-trust domains are also untrusted."""
+    # blog.infowars.com should match infowars.com
+    source = {
+        "url": "https://blog.infowars.com/article",
+        "domain": "blog.infowars.com",
+        "title": "Article",
+        "snippet": "Some article content",
+        "engine": "google",
+    }
+    
+    result = score_source(source)
+    breakdown = result["score_breakdown"]
+    
+    # Should get low-trust penalty
+    assert breakdown.get("low_trust_domain") == -30

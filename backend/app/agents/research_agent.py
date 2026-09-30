@@ -658,8 +658,10 @@ async def run_research(query: str) -> Dict[str, Any]:
     # Initialize state
     initial_state: ResearchState = {
         "original_query": query,
+        "refined_query": query,  # Default to original, refine_node will override if needed
         "session_id": session_id,
         "status": "in_progress",
+        "needs_refinement": False,
         "node_timings": {}
     }
     

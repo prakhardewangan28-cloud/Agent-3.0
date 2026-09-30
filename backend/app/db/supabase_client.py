@@ -315,6 +315,42 @@ async def update_session_final_report(
         raise
 
 
+async def update_session_counter_argument(
+    session_id: str,
+    counter_argument: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Update the counter-argument for a research session.
+    
+    Args:
+        session_id: UUID of the session
+        counter_argument: Counter-argument JSON object or None
+    
+    Returns:
+        Updated session record
+        
+    Raises:
+        ValueError: If the session does not exist
+        Exception: If database operation fails
+    """
+    try:
+        response = supabase.table("research_sessions")\
+            .update({"counter_argument": counter_argument})\
+            .eq("id", session_id)\
+            .execute()
+        
+        if not response.data:
+            raise ValueError(f"Session {session_id} not found")
+        
+        logger.info(f"Updated session {session_id} with counter-argument (strength: {counter_argument.get('strength') if counter_argument else None})")
+        return response.data[0]
+    except ValueError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update counter-argument for session {session_id}: {e}")
+        raise
+
+
 async def get_session(session_id: str) -> Optional[Dict[str, Any]]:
     """
     Get a research session by ID.

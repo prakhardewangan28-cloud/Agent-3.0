@@ -24,6 +24,7 @@ from .refinement_service import (
     generate_refinements,
     refine_or_proceed,
 )
+from .counter_argument_service import generate_counter_argument
 
 __all__ = [
     # SerpAPI functions
@@ -49,4 +50,6 @@ __all__ = [
     "is_vague",
     "generate_refinements",
     "refine_or_proceed",
+    # Counter-argument function
+    "generate_counter_argument",
 ]

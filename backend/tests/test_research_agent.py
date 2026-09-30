@@ -211,3 +211,93 @@ async def test_run_research_with_refinement():
             assert result["status"] == "complete"
             assert result["refined_query"] == chosen_direction
             assert "final_report" in result
+
+
+# ============================================================================
+# COUNTER-ARGUMENT NODE TESTS
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_counter_argument_node_sets_state():
+    """Test that counter_argument_node updates state correctly"""
+    from app.agents.research_agent import counter_argument_node
+    
+    with patch("app.config.settings.mock_mode", True), \
+         patch("app.db.supabase_client.get_sources_by_session", new_callable=AsyncMock) as mock_get_sources, \
+         patch("app.agents.research_agent.update_session_counter_argument", new_callable=AsyncMock):
+        
+        # Mock sources
+        mock_get_sources.return_value = [
+            {"id": 1, "url": "https://example.com/1", "domain": "example.com", 
+             "title": "Source 1", "credibility_score": 80.0},
+            {"id": 2, "url": "https://example.com/2", "domain": "example.com", 
+             "title": "Source 2", "credibility_score": 70.0},
+        ]
+        
+        # Create state with final report
+        state = ResearchState(
+            session_id="test-session-id",
+            final_report="# Test Report\n\nThis is a test report with conclusions.",
+            landscape={"consensus": [], "contested": [], "unknowns": []},
+            node_timings={},
+        )
+        
+        # Call counter_argument_node
+        result_state = await counter_argument_node(state)
+        
+        # Verify counter_argument is set
+        assert result_state["counter_argument"] is not None
+        assert isinstance(result_state["counter_argument"], dict)
+        
+        # Verify structure
+        counter = result_state["counter_argument"]
+        assert "counter_argument" in counter
+        assert "supporting_sources" in counter
+        assert "strength" in counter
+        assert "explanation" in counter
+        
+        # Verify types
+        assert isinstance(counter["counter_argument"], str)
+        assert isinstance(counter["supporting_sources"], list)
+        assert isinstance(counter["strength"], str)
+        assert isinstance(counter["explanation"], str)
+
+
+@pytest.mark.asyncio
+async def test_run_research_includes_counter_argument():
+    """Test that full pipeline includes counter-argument"""
+    with patch("app.config.settings.mock_mode", True):
+        # Use specific query to avoid refinement
+        query = "What are the long-term effects of climate change on agriculture?"
+        result = await run_research(query)
+        
+        # Verify counter-argument was generated
+        assert "counter_argument" in result
+        assert result["counter_argument"] is not None
+        
+        # Verify structure
+        counter = result["counter_argument"]
+        assert "counter_argument" in counter
+        assert "strength" in counter
+        assert counter["strength"] in ["strong", "moderate", "weak", "none"]
+
+
+@pytest.mark.asyncio
+async def test_counter_argument_node_handles_missing_report():
+    """Test that counter_argument_node handles missing final_report gracefully"""
+    from app.agents.research_agent import counter_argument_node
+    
+    with patch("app.config.settings.mock_mode", True):
+        # Create state WITHOUT final_report
+        state = ResearchState(
+            session_id="test-session-id",
+            final_report="",  # Empty report
+            landscape={},
+            node_timings={},
+        )
+        
+        # Call counter_argument_node
+        result_state = await counter_argument_node(state)
+        
+        # Verify counter_argument is None
+        assert result_state["counter_argument"] is None

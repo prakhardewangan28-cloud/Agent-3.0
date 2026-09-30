@@ -62,3 +62,36 @@ class ResearchResponse(BaseModel):
     query: str
     claims: List[ClaimResponse]
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+
+class CounterArgumentSource(BaseModel):
+    """Counter-argument supporting source."""
+    source_id: int
+    url: str
+    domain: str
+    credibility_score: float
+    reason: str
+
+
+class CounterArgument(BaseModel):
+    """Counter-argument to the research report."""
+    counter_argument: str
+    supporting_sources: List[CounterArgumentSource]
+    strength: str  # "strong" | "moderate" | "weak" | "none"
+    explanation: str
+
+
+class ResearchSessionResponse(BaseModel):
+    """Complete research session response."""
+    session_id: str
+    status: str
+    original_query: str
+    refined_query: Optional[str] = None
+    sources: List[Dict[str, Any]]
+    conflicts: List[Dict[str, Any]]
+    landscape: Dict[str, Any]
+    final_report: Optional[str] = None
+    counter_argument: Optional[CounterArgument] = None
+    node_timings: Dict[str, float] = {}
+    error: Optional[str] = None

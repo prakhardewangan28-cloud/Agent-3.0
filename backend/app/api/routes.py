@@ -285,7 +285,7 @@ async def get_research_results(session_id: str):
             }
         
         # Build response
-        return {
+        response_data = {
             "session_id": session_id,
             "status": session.get("status", "unknown"),
             "original_query": session.get("original_query", ""),
@@ -294,9 +294,12 @@ async def get_research_results(session_id: str):
             "conflicts": conflicts,
             "landscape": landscape,
             "final_report": session.get("final_report"),
+            "counter_argument": session.get("counter_argument"),
             "node_timings": session.get("node_timings", {}),
             "error": session.get("error"),
         }
+        
+        return response_data
         
     except HTTPException:
         raise
@@ -371,7 +374,7 @@ async def get_research_report(session_id: str):
         session_id: Session ID
     
     Returns:
-        Markdown report text
+        Markdown report text with optional counter-argument section
     """
     logger.info(f"GET /api/v1/research/{session_id}/report")
     
@@ -383,6 +386,25 @@ async def get_research_report(session_id: str):
         report = session.get("final_report")
         if not report:
             raise HTTPException(status_code=404, detail="Report not yet available")
+        
+        # Append counter-argument section if available
+        counter = session.get("counter_argument")
+        if counter and isinstance(counter, dict):
+            report += "\n\n---\n\n"
+            report += "## Counter-Argument\n\n"
+            report += f"**Strength:** {counter.get('strength', 'unknown')}\n\n"
+            report += f"{counter.get('counter_argument', '')}\n\n"
+            report += f"**Explanation:** {counter.get('explanation', '')}\n\n"
+            
+            supporting_sources = counter.get("supporting_sources", [])
+            if supporting_sources and counter.get('strength') != 'none':
+                source_links = [
+                    f"[{s.get('domain', 'Source')}]({s.get('url', '#')})"
+                    for s in supporting_sources
+                ]
+                report += f"**Supporting sources:** {', '.join(source_links)}\n"
+            elif counter.get('strength') == 'none':
+                report += "*No supporting sources were found for a counter-argument.*\n"
         
         return Response(
             content=report,

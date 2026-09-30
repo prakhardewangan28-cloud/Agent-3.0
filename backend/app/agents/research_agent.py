@@ -25,12 +25,14 @@ from app.services import (
     search_web,
     search_news,
     search_scholar,
+    generate_counter_argument,
 )
 from app.services.gemini_client import generate
 from app.db.supabase_client import (
     create_session,
     update_session_status,
     update_session_final_report,
+    update_session_counter_argument,
     insert_sources,
     get_claims_by_session,
 )
@@ -72,6 +74,9 @@ class ResearchState(TypedDict, total=False):
     
     # Report
     final_report: str
+    
+    # Counter-argument
+    counter_argument: Optional[Dict[str, Any]]  # opposing perspective
     
     # Metadata
     status: str  # "in_progress" | "complete" | "failed" | "needs_refinement"
@@ -522,6 +527,51 @@ Based on analysis of {len(stored_sources)} sources, this report synthesizes the 
         return state
 
 
+@timed_node("counter_argument")
+async def counter_argument_node(state: ResearchState) -> ResearchState:
+    """
+    NODE 10: Generate the strongest counter-argument to the report.
+    Prevents AI overconfidence by surfacing opposing perspectives.
+    This is a nice-to-have feature — it never fails the pipeline.
+    """
+    try:
+        session_id = state["session_id"]
+        final_report = state.get("final_report", "")
+        landscape = state.get("landscape", {})
+        
+        if not final_report:
+            logger.warning("No final report, skipping counter-argument")
+            state["counter_argument"] = None
+            return state
+        
+        result = await generate_counter_argument(
+            session_id=session_id,
+            final_report=final_report,
+            landscape=landscape,
+        )
+        
+        logger.info(
+            f"Counter-argument generated: strength={result.get('strength')}, "
+            f"supporting_sources={len(result.get('supporting_sources', []))}"
+        )
+        
+        state["counter_argument"] = result
+        
+        # Persist to database
+        if result:
+            try:
+                await update_session_counter_argument(session_id, result)
+            except Exception as e:
+                logger.warning(f"Failed to persist counter-argument: {e}")
+        
+        return state
+        
+    except Exception as e:
+        logger.error(f"Node counter_argument failed: {e}\n{traceback.format_exc()}")
+        state["counter_argument"] = None
+        return state
+
+
 # ============================================================================
 # GRAPH CONSTRUCTION
 # ============================================================================
@@ -540,6 +590,7 @@ def build_research_graph() -> StateGraph:
     workflow.add_node("conflict", conflict_node)
     workflow.add_node("landscape", landscape_node)
     workflow.add_node("report", report_node)
+    workflow.add_node("counter_argument", counter_argument_node)
     
     # Set entry point
     workflow.set_entry_point("refine")
@@ -557,7 +608,7 @@ def build_research_graph() -> StateGraph:
         {"end": END, "continue": "plan"}
     )
     
-    # Linear chain from plan to report
+    # Linear chain from plan to counter_argument
     workflow.add_edge("plan", "search")
     workflow.add_edge("search", "score")
     workflow.add_edge("score", "store")
@@ -565,7 +616,8 @@ def build_research_graph() -> StateGraph:
     workflow.add_edge("extract", "conflict")
     workflow.add_edge("conflict", "landscape")
     workflow.add_edge("landscape", "report")
-    workflow.add_edge("report", END)
+    workflow.add_edge("report", "counter_argument")
+    workflow.add_edge("counter_argument", END)
     
     return workflow.compile()
 

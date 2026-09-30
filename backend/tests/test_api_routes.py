@@ -4,6 +4,7 @@ Tests the complete HTTP API layer with REST and SSE endpoints.
 """
 
 import pytest
+import asyncio
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -213,3 +214,133 @@ def test_refine_research_unknown_session_returns_404(mock_mode):
     )
     
     assert response.status_code == 404
+
+
+
+# ============================================================================
+# COUNTER-ARGUMENT API TESTS
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_get_research_includes_counter_argument_field():
+    """Test that GET /research/{id} includes counter_argument field."""
+    with patch("app.config.settings.mock_mode", True):
+        # Create a research session
+        response = client.post("/api/v1/research/start", json={"query": "What causes earthquakes and how are they predicted?"})
+        assert response.status_code == 200
+        session_id = response.json()["session_id"]
+        
+        # Wait briefly for processing
+        await asyncio.sleep(1)
+        
+        # Get research results
+        response = client.get(f"/api/v1/research/{session_id}")
+        assert response.status_code == 200
+        
+        data = response.json()
+        # Verify counter_argument field exists
+        assert "counter_argument" in data
+
+
+@pytest.mark.asyncio
+async def test_get_research_counter_argument_structure():
+    """Test counter_argument structure when present."""
+    with patch("app.config.settings.mock_mode", True):
+        # Create a research session
+        response = client.post("/api/v1/research/start", json={"query": "How does photosynthesis work in plants?"})
+        assert response.status_code == 200
+        session_id = response.json()["session_id"]
+        
+        # Wait for processing
+        await asyncio.sleep(1)
+        
+        # Get research results
+        response = client.get(f"/api/v1/research/{session_id}")
+        assert response.status_code == 200
+        
+        data = response.json()
+        counter = data.get("counter_argument")
+        
+        # If counter_argument is present, verify structure
+        if counter is not None:
+            assert "counter_argument" in counter
+            assert "supporting_sources" in counter
+            assert "strength" in counter
+            assert "explanation" in counter
+            
+            # Verify strength is valid
+            assert counter["strength"] in ["strong", "moderate", "weak", "none"]
+            
+            # Verify supporting_sources is a list
+            assert isinstance(counter["supporting_sources"], list)
+
+
+@pytest.mark.asyncio
+async def test_get_report_includes_counter_argument_section():
+    """Test that GET /report includes Counter-Argument section when counter_argument exists."""
+    import uuid
+    
+    with patch("app.api.routes.get_session", new_callable=AsyncMock) as mock_get_session:
+        
+        # Use a valid UUID
+        test_session_id = str(uuid.uuid4())
+        
+        # Mock a session WITH counter_argument
+        mock_get_session.return_value = {
+            "id": test_session_id,
+            "status": "complete",
+            "original_query": "test query",
+            "final_report": "# Test Report\n\nThis is a test report.",
+            "counter_argument": {
+                "counter_argument": "However, some argue differently.",
+                "strength": "moderate",
+                "explanation": "Alternative perspectives exist.",
+                "supporting_sources": [
+                    {"source_id": 1, "url": "https://example.com", "domain": "example.com", "credibility_score": 75.0, "reason": "test"}
+                ]
+            }
+        }
+        
+        # Get markdown report
+        response = client.get(f"/api/v1/research/{test_session_id}/report")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/markdown; charset=utf-8"
+        
+        markdown_text = response.text
+        
+        # Verify counter-argument section is present
+        assert "## Counter-Argument" in markdown_text
+        assert "**Strength:**" in markdown_text
+        assert "moderate" in markdown_text
+        assert "However, some argue differently" in markdown_text
+
+
+@pytest.mark.asyncio
+async def test_report_without_counter_argument_still_works():
+    """Test that report endpoint works even without counter_argument."""
+    import uuid
+    
+    with patch("app.api.routes.get_session", new_callable=AsyncMock) as mock_get_session:
+        
+        # Use a valid UUID
+        test_session_id = str(uuid.uuid4())
+        
+        # Mock a session WITHOUT counter_argument
+        mock_get_session.return_value = {
+            "id": test_session_id,
+            "status": "complete",
+            "original_query": "test query",
+            "final_report": "# Test Report\n\nThis is a test report without counter-argument.",
+            "counter_argument": None,  # No counter-argument
+        }
+        
+        # Get report
+        response = client.get(f"/api/v1/research/{test_session_id}/report")
+        assert response.status_code == 200
+        
+        markdown_text = response.text
+        
+        # Verify no counter-argument section
+        assert "## Counter-Argument" not in markdown_text
+        # But the main report should still be there
+        assert "# Test Report" in markdown_text

@@ -90,13 +90,10 @@ async def test_judge_pair_returns_none_for_agreement():
     # To properly test, we need to patch at the config level
     with patch("app.config.settings.mock_mode", False), \
          patch("app.services.gemini_client.settings.mock_mode", False), \
-         patch("app.services.gemini_client.get_client") as mock_client:
+         patch("app.services.conflict_service.generate", new_callable=AsyncMock) as mock_generate:
         
-        # Mock the Gemini client response
-        mock_response = MagicMock()
-        mock_response.text = '{"relationship": "agreement", "confidence": 0.9, "explanation": "Both claims agree"}'
-        
-        mock_client.return_value.models.generate_content.return_value = mock_response
+        # Mock the Gemini response
+        mock_generate.return_value = '{"relationship": "agreement", "confidence": 0.9, "explanation": "Both claims agree"}'
         
         result = await judge_pair(claim_a, claim_b)
         
@@ -111,13 +108,10 @@ async def test_judge_pair_returns_conflict_for_contradiction():
     
     with patch("app.config.settings.mock_mode", False), \
          patch("app.services.gemini_client.settings.mock_mode", False), \
-         patch("app.services.gemini_client.get_client") as mock_client:
+         patch("app.services.conflict_service.generate", new_callable=AsyncMock) as mock_generate:
         
-        # Mock the Gemini client response
-        mock_response = MagicMock()
-        mock_response.text = '{"relationship": "contradiction", "confidence": 0.95, "explanation": "Mutually exclusive claims"}'
-        
-        mock_client.return_value.models.generate_content.return_value = mock_response
+        # Mock the Gemini response
+        mock_generate.return_value = '{"relationship": "contradiction", "confidence": 0.95, "explanation": "Mutually exclusive claims"}'
         
         result = await judge_pair(claim_a, claim_b)
         
@@ -137,18 +131,12 @@ async def test_judge_pair_handles_malformed_json_with_retry():
     
     with patch("app.config.settings.mock_mode", False), \
          patch("app.services.gemini_client.settings.mock_mode", False), \
-         patch("app.services.gemini_client.get_client") as mock_client:
+         patch("app.services.conflict_service.generate", new_callable=AsyncMock) as mock_generate:
         
         # First call returns malformed JSON, second call returns valid JSON
-        mock_response_1 = MagicMock()
-        mock_response_1.text = "This is not JSON at all"
-        
-        mock_response_2 = MagicMock()
-        mock_response_2.text = '{"relationship": "disagreement", "confidence": 0.7, "explanation": "Minor differences"}'
-        
-        mock_client.return_value.models.generate_content.side_effect = [
-            mock_response_1,
-            mock_response_2
+        mock_generate.side_effect = [
+            "This is not JSON at all",
+            '{"relationship": "disagreement", "confidence": 0.7, "explanation": "Minor differences"}'
         ]
         
         result = await judge_pair(claim_a, claim_b)
@@ -156,7 +144,7 @@ async def test_judge_pair_handles_malformed_json_with_retry():
         # Should succeed after retry
         assert result is not None
         assert result["conflict_type"] == "disagreement"
-        assert mock_client.return_value.models.generate_content.call_count == 2  # Called twice due to retry
+        assert mock_generate.call_count == 2  # Called twice due to retry
 
 
 @pytest.mark.asyncio

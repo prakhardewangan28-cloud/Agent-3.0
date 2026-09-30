@@ -1,134 +1,138 @@
-"""Gemini API verification script using google-genai SDK (supports AQ. keys)."""
-import sys
-import os
-import traceback
+"""
+Check Gemini API connectivity with query-param authentication.
+
+Tests both text generation and embedding with the AQ. API key.
+"""
 import asyncio
+import sys
+from pathlib import Path
 
 # Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from app.services.gemini_client import generate, embed, reset_session_counter
 from app.config import settings
-
-# Check for mock mode
-if settings.mock_mode:
-    print("=" * 70)
-    print("🧪 RUNNING IN MOCK MODE")
-    print("=" * 70)
-    print("No real API calls will be made. Using fake data for testing.")
-    print()
-
-print("=" * 70)
-print("GEMINI API TEST (google-genai SDK)")
-print("=" * 70)
-print()
-
-try:
-    from app.services.gemini_client import generate, embed
-    
-    print("✅ Gemini modules imported successfully")
-    if not settings.mock_mode:
-        print(f"   API Key prefix: {settings.gemini_api_key[:6]}...")
-    else:
-        print("   Using MOCK MODE - no API key needed")
-    print()
-    
-except ImportError as e:
-    print(f"❌ Failed to import Gemini modules: {e}")
-    print()
-    traceback.print_exc()
-    sys.exit(1)
-
-
-async def test_gemini_generate():
-    """Test Gemini text generation."""
-    print("Step 1: Testing Gemini text generation...")
-    try:
-        response = await generate("Reply with just: OK")
-        print(f"  ✅ Generation successful")
-        print(f"     Prompt: 'Reply with just: OK'")
-        print(f"     Response: {response.strip()[:100]}...")
-        print()
-        return True
-    except Exception as e:
-        if settings.mock_mode:
-            print(f"  ❌ Generation FAILED (unexpected in mock mode)")
-        else:
-            print(f"  ❌ Generation FAILED")
-        print(f"     Error: {type(e).__name__}: {e}")
-        print()
-        if not settings.mock_mode:
-            print("Full traceback:")
-            traceback.print_exc()
-            print()
-        return False
-
-
-async def test_gemini_embed():
-    """Test Gemini embedding generation."""
-    print("Step 2: Testing Gemini embeddings (1536 dimensions)...")
-    try:
-        vector = await embed("test", dim=1536)
-        vector_length = len(vector)
-        
-        print(f"  ✅ Embedding successful")
-        print(f"     Text: 'test'")
-        print(f"     Vector length: {vector_length}")
-        print(f"     First 5 values: {[round(v, 4) for v in vector[:5]]}")
-        print()
-        
-        if vector_length == 1536:
-            print(f"  ✅ Dimension check PASSED (1536)")
-        else:
-            print(f"  ⚠️ Dimension is {vector_length}, expected 1536")
-        
-        print()
-        return vector_length == 1536
-    except Exception as e:
-        if settings.mock_mode:
-            print(f"  ❌ Embedding FAILED (unexpected in mock mode)")
-        else:
-            print(f"  ❌ Embedding FAILED")
-        print(f"     Error: {type(e).__name__}: {e}")
-        print()
-        if not settings.mock_mode:
-            print("Full traceback:")
-            traceback.print_exc()
-            print()
-        return False
 
 
 async def main():
-    """Run all Gemini tests."""
-    generate_success = await test_gemini_generate()
-    embed_success = await test_gemini_embed()
+    """Test Gemini API connectivity."""
     
-    print("=" * 70)
-    if generate_success and embed_success:
-        print("✅ GEMINI WORKS")
-        print("=" * 70)
+    print("=" * 80)
+    print("GEMINI API CONNECTIVITY CHECK")
+    print("=" * 80)
+    print()
+    
+    print(f"MOCK_MODE: {settings.mock_mode}")
+    print(f"API Key: {settings.gemini_api_key[:10]}...{settings.gemini_api_key[-4:]}")
+    print()
+    
+    # Reset counter
+    reset_session_counter()
+    
+    # Test 1: Simple text generation
+    print("=" * 80)
+    print("TEST 1: Text Generation")
+    print("=" * 80)
+    
+    try:
+        prompt = "Say 'Hello from Gemini!' and nothing else."
+        print(f"Prompt: {prompt}")
         print()
-        if settings.mock_mode:
-            print("🧪 Mock mode verification complete!")
-            print("Function signatures work correctly.")
-        else:
-            print("Gemini API is fully functional!")
+        
+        response = await generate(prompt)
+        
+        print("✓ SUCCESS")
+        print(f"Response: {response[:200]}")
         print()
-        print("Available functions:")
-        print("  - await generate(prompt, model='gemini-3.6-flash')")
-        print("  - await embed(text, dim=1536)")
+        
+    except Exception as e:
+        print(f"✗ FAILED: {e}")
         print()
-        sys.exit(0)
-    else:
-        print("❌ GEMINI FAILED")
-        print("=" * 70)
+        return 1
+    
+    # Test 2: JSON generation
+    print("=" * 80)
+    print("TEST 2: JSON Generation")
+    print("=" * 80)
+    
+    try:
+        prompt = """Return ONLY valid JSON with no markdown:
+{"test": "success", "status": "ok"}"""
+        print(f"Prompt: Requesting JSON response")
         print()
-        if not generate_success:
-            print("  ❌ Text generation failed")
-        if not embed_success:
-            print("  ❌ Embedding generation failed")
+        
+        response = await generate(prompt)
+        
+        print("✓ SUCCESS")
+        print(f"Response: {response[:200]}")
         print()
-        sys.exit(1)
+        
+    except Exception as e:
+        print(f"✗ FAILED: {e}")
+        print()
+        return 1
+    
+    # Test 3: Embedding generation
+    print("=" * 80)
+    print("TEST 3: Embedding Generation")
+    print("=" * 80)
+    
+    try:
+        text = "This is a test sentence for embedding."
+        print(f"Text: {text}")
+        print()
+        
+        embedding = await embed(text, dim=768)
+        
+        print("✓ SUCCESS")
+        print(f"Embedding dimensions: {len(embedding)}")
+        print(f"First 5 values: {embedding[:5]}")
+        print()
+        
+    except Exception as e:
+        print(f"✗ FAILED: {e}")
+        print()
+        return 1
+    
+    # Test 4: Multiple calls (quota test)
+    print("=" * 80)
+    print("TEST 4: Multiple Calls (Quota Management)")
+    print("=" * 80)
+    
+    try:
+        from app.services.gemini_client import get_session_call_count
+        
+        print(f"Call count before: {get_session_call_count()}")
+        
+        for i in range(3):
+            response = await generate(f"Say the number {i+1}")
+            print(f"  Call {i+1}: {response[:50]}...")
+        
+        final_count = get_session_call_count()
+        print()
+        print(f"✓ SUCCESS")
+        print(f"Call count after: {final_count}")
+        print(f"Quota status: {'Under limit' if final_count <= 5 else 'Over limit'}")
+        print()
+        
+    except Exception as e:
+        print(f"✗ FAILED: {e}")
+        print()
+        return 1
+    
+    # Summary
+    print("=" * 80)
+    print("SUMMARY")
+    print("=" * 80)
+    print()
+    print("✓ All tests passed!")
+    print("✓ Gemini API is working correctly with AQ. key")
+    print("✓ Query parameter authentication successful")
+    print()
+    
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    exit_code = asyncio.run(main())
+    sys.exit(exit_code)

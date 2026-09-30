@@ -88,11 +88,9 @@ async def test_generate_refinements_parses_valid_json():
     }'''
     
     with patch("app.config.settings.mock_mode", False), \
-         patch("app.services.gemini_client.get_client") as mock_client:
+         patch("app.services.refinement_service.generate", new_callable=AsyncMock) as mock_generate:
         
-        mock_gen_response = MagicMock()
-        mock_gen_response.text = mock_response
-        mock_client.return_value.models.generate_content.return_value = mock_gen_response
+        mock_generate.return_value = mock_response
         
         directions = await generate_refinements("vague query")
         
@@ -113,24 +111,18 @@ async def test_generate_refinements_handles_malformed_json():
     }'''
     
     with patch("app.config.settings.mock_mode", False), \
-         patch("app.services.gemini_client.get_client") as mock_client:
+         patch("app.services.refinement_service.generate", new_callable=AsyncMock) as mock_generate:
         
-        mock_gen_1 = MagicMock()
-        mock_gen_1.text = mock_response_1
-        
-        mock_gen_2 = MagicMock()
-        mock_gen_2.text = mock_response_2
-        
-        mock_client.return_value.models.generate_content.side_effect = [
-            mock_gen_1,
-            mock_gen_2
+        mock_generate.side_effect = [
+            mock_response_1,
+            mock_response_2
         ]
         
         directions = await generate_refinements("vague query")
         
         # Should succeed after retry
         assert len(directions) >= 1
-        assert mock_client.return_value.models.generate_content.call_count == 2
+        assert mock_generate.call_count == 2
 
 
 @pytest.mark.asyncio

@@ -36,22 +36,99 @@ def _mock_response_for_prompt(prompt: str) -> str:
     """Return a realistic mock response based on prompt type."""
     p = prompt.lower()
     
+    # Claim extraction
     if "json" in p and "claim" in p:
-        return '{"claims": [{"claim": "Mock claim 1", "confidence": 0.9}, {"claim": "Mock claim 2", "confidence": 0.75}]}'
+        return '''{
+  "claims": [
+    {"claim": "Apples contain dietary fiber that supports digestive health and promotes regular bowel movements.", "confidence": 0.92},
+    {"claim": "Regular apple consumption is associated with reduced cardiovascular disease risk in epidemiological studies.", "confidence": 0.87},
+    {"claim": "The antioxidant quercetin found in apple skins has demonstrated anti-inflammatory properties in laboratory research.", "confidence": 0.81},
+    {"claim": "Apple polyphenols may contribute to improved blood sugar regulation according to preliminary studies.", "confidence": 0.74},
+    {"claim": "Consuming one apple daily provides approximately 4 grams of soluble fiber which supports heart health.", "confidence": 0.85}
+  ]
+}'''
     
+    # Conflict judgment
     if "json" in p and ("judge" in p or "contradiction" in p or "compare" in p):
-        return '{"relationship": "disagreement", "confidence": 0.7, "explanation": "Mock judgment"}'
+        return '''{
+  "relationship": "disagreement",
+  "confidence": 0.73,
+  "explanation": "The two claims emphasize different nutritional aspects of apples - one focuses on fiber content while the other highlights antioxidant compounds. While not directly contradictory, they present distinct mechanistic pathways for health benefits."
+}'''
     
+    # Vagueness check
     if "json" in p and "vague" in p:
-        return '{"is_vague": false, "reason": "Mock classification"}'
+        return '{"is_vague": false, "reason": "Query specifies a clear topic (health benefits of apples) with measurable outcomes."}'
     
+    # Research directions
     if "json" in p and "direction" in p:
-        return '{"directions": [{"direction": "Mock direction 1", "rationale": "r1", "type": "context"}]}'
+        return '''{
+  "directions": [
+    {"direction": "systematic review cardiovascular benefits apples", "rationale": "Target peer-reviewed medical evidence", "type": "academic"},
+    {"direction": "apple nutrition fiber antioxidants health", "rationale": "Gather nutritional science perspectives", "type": "context"},
+    {"direction": "apple consumption studies clinical trials", "rationale": "Find controlled research data", "type": "academic"}
+  ]
+}'''
     
+    # Counter-argument
     if "json" in p and "counter" in p:
-        return '{"counter_argument": "Mock counter-argument.", "supporting_source_ids": [1], "strength": "moderate", "explanation": "Mock"}'
+        return '''{
+  "counter_argument": "While the cited sources support cardiovascular and digestive benefits of apple consumption, several important limitations must be considered. First, the majority of evidence comes from observational epidemiological studies rather than randomized controlled trials, making it difficult to establish causation versus correlation. Second, many studies do not adequately control for confounding variables such as overall diet quality, physical activity levels, and socioeconomic factors that may independently influence health outcomes. Third, the effect sizes reported are generally modest, and the optimal daily intake remains undefined across different populations. Finally, significant variability exists between apple varieties in polyphenol content and bioavailability, which is rarely addressed in research synthesis.",
+  "supporting_source_ids": [1, 3],
+  "strength": "moderate",
+  "explanation": "The counter-argument identifies methodological limitations in the cited research while acknowledging the consistency of observational findings. Sources 1 and 3 themselves note these limitations in their discussion sections."
+}'''
     
-    return "# Mock Report\n\nThis is a mock generated report."
+    # Report generation
+    if "markdown" in p or "report" in p or ("summary" in p and "source" in p):
+        return '''# Research Report: Health Benefits of Daily Apple Consumption
+
+## Executive Summary
+
+Analysis of 9 scientific sources reveals consistent evidence supporting multiple health benefits of regular apple consumption, particularly for cardiovascular and digestive health. The body of research demonstrates moderate-to-strong consensus on fiber-related benefits, with some debate regarding the magnitude and mechanisms of antioxidant effects.
+
+## Consensus Findings
+
+### Cardiovascular Health
+Multiple epidemiological studies across diverse populations demonstrate an association between regular apple consumption and reduced cardiovascular disease risk. The soluble fiber pectin is consistently identified as a key bioactive compound contributing to cholesterol reduction (Sources: sciencedirect.com, pubs.rsc.org).
+
+### Digestive Health
+Dietary fiber content in apples (approximately 4g per medium apple) supports digestive regularity and promotes beneficial gut microbiota. Both soluble and insoluble fiber fractions contribute to these effects through distinct mechanisms (Source: sciencedirect.com).
+
+### Antioxidant Activity
+Apple polyphenols, particularly quercetin concentrated in the peel, demonstrate anti-inflammatory and antioxidant properties in laboratory studies. However, bioavailability and dose-response relationships in humans remain subjects of ongoing investigation (Source: pubs.rsc.org).
+
+## Contested Points
+
+### Blood Sugar Regulation
+While some research suggests apple polyphenols may support glycemic control, the clinical significance and consistency of this effect across populations remains debated. Studies show mixed results depending on apple variety, processing method, and individual metabolic factors.
+
+### Optimal Intake
+The commonly cited "apple a day" guideline lacks rigorous dose-response evidence. Research has not definitively established whether one, two, or more apples daily provides maximum benefit, or whether benefits plateau beyond a certain intake threshold.
+
+## Unknowns and Research Gaps
+
+- **Long-term Effects**: Most studies track outcomes for 1-5 years; effects of lifelong consumption patterns remain unclear
+- **Variety Differences**: Significant variation exists in polyphenol profiles across cultivars, but few studies compare health outcomes by variety
+- **Processing Impact**: Effects of juice, dried apples, or cooked preparations relative to fresh whole fruit are incompletely characterized
+- **Population Specificity**: Most research focuses on Western populations; generalizability to other dietary contexts is uncertain
+
+## Methodological Considerations
+
+The preponderance of observational rather than interventional studies limits causal inference. Residual confounding from overall diet quality, lifestyle factors, and health consciousness cannot be fully excluded. Well-controlled feeding studies with apples as the sole dietary variable are rare and typically short-duration.
+
+## Sources Consulted
+
+1. sciencedirect.com - Effects of apple intake on cardiometabolic health
+2. pubs.rsc.org - Apple polyphenols and human health outcomes  
+3. oye.odwire.org - Nutritional composition and health claims
+4-9. Additional sources providing supporting context
+
+## Conclusion
+
+Regular apple consumption as part of a balanced diet appears to confer modest cardiovascular and digestive health benefits, supported by consistent observational evidence and plausible biological mechanisms. However, claims should be interpreted cautiously given methodological limitations, and apples should be viewed as one component of overall dietary patterns rather than a singular health intervention.'''
+    
+    return "Mock response generated for unrecognized prompt type."
 
 
 async def generate(prompt: str, model: str = DEFAULT_MODEL) -> str:
@@ -71,7 +148,7 @@ async def generate(prompt: str, model: str = DEFAULT_MODEL) -> str:
     global _session_call_count
     
     # Mock mode
-    if settings.mock_mode:
+    if settings.is_llm_mocked:
         await asyncio.sleep(0.05)
         return _mock_response_for_prompt(prompt)
     
@@ -158,7 +235,7 @@ async def embed(text: str, dim: int = 1536) -> list[float]:
         Uses x-goog-api-key header authentication for AQ. API keys.
         Embedding quota is separate from generation quota.
     """
-    if settings.mock_mode:
+    if settings.is_llm_mocked:
         # Deterministic mock embeddings based on text hash
         import hashlib
         h = hashlib.sha256(text.encode()).digest()

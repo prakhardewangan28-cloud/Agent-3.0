@@ -15,13 +15,20 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 # ============================================================================
 
+# Academic/Research publisher domains (higher trust bonus)
+ACADEMIC_DOMAINS = {
+    "nature.com", "science.org", "sciencedirect.com", "elsevier.com",
+    "springer.com", "link.springer.com", "cell.com", "wiley.com",
+    "oxford.com", "cambridge.org", "jstor.org", "arxiv.org",
+    "plos.org", "frontiersin.org", "ieee.org", "acm.org"
+}
+
+# General trusted domains (standard trust bonus)
 TRUSTED_DOMAINS = {
-    "nature.com", "science.org", "reuters.com", "apnews.com", "bbc.com",
-    "nytimes.com", "wsj.com", "economist.com", "who.int", "cdc.gov",
-    "nih.gov", "nasa.gov", "arxiv.org", "ieee.org", "acm.org",
-    "springer.com", "sciencedirect.com", "jstor.org", "pewresearch.org",
-    "gallup.com", "theguardian.com", "aljazeera.com", "npr.org",
-    "ft.com", "bloomberg.com"
+    "reuters.com", "apnews.com", "bbc.com", "nytimes.com", "wsj.com",
+    "economist.com", "who.int", "cdc.gov", "nih.gov", "nasa.gov",
+    "pewresearch.org", "gallup.com", "theguardian.com", "aljazeera.com",
+    "npr.org", "ft.com", "bloomberg.com"
 }
 
 LOW_TRUST_DOMAINS = {
@@ -95,43 +102,47 @@ def score_source(source: Dict[str, Any]) -> Dict[str, Any]:
         score += domain_suffix_score
         breakdown["domain_suffix"] = domain_suffix_score
     
-    # RULE 2: Trusted domain allowlist (supports subdomains)
-    if _is_trusted_domain(domain):
+    # RULE 2: Academic/research domain (high trust)
+    if _is_academic_domain(domain):
+        score += 60
+        breakdown["academic_domain"] = 60
+    # RULE 3: Trusted domain allowlist (supports subdomains)
+    elif _is_trusted_domain(domain):
         score += 25
         breakdown["trusted_domain"] = 25
     
-    # RULE 3: Low-trust domain denylist (supports subdomains)
+    # RULE 4: Low-trust domain denylist (supports subdomains)
     if _is_low_trust_domain(domain):
         score -= 30
         breakdown["low_trust_domain"] = -30
     
-    # RULE 4: Author presence
+    # RULE 5: Author presence
     if _has_author_byline(title, snippet):
         score += 10
         breakdown["author_presence"] = 10
     
-    # RULE 5: Date freshness
+    # RULE 6: Date freshness
     freshness_score = _score_freshness(published_date)
     if freshness_score > 0:
         score += freshness_score
         breakdown["freshness"] = freshness_score
     
-    # RULE 6: Clickbait signals
+    # RULE 7: Clickbait signals
     if _has_clickbait(title):
         score -= 15
         breakdown["clickbait_penalty"] = -15
     
-    # RULE 7: Sponsored/promotional signals
+    # RULE 8: Sponsored/promotional signals
     if _has_sponsored_signal(url):
         score -= 20
         breakdown["sponsored_penalty"] = -20
     
-    # RULE 8: Content length heuristic
+    # RULE 9: Content length heuristic
     if snippet and len(snippet) < 50:
         score -= 10
         breakdown["short_snippet_penalty"] = -10
     
-    # RULE 9: Engine bonus
+    # RULE 10: Engine bonus
     if engine == "scholar":
         score += 5
         breakdown["scholar_bonus"] = 5
@@ -276,6 +287,37 @@ def _is_trusted_domain(domain: str) -> bool:
     # e.g., "science.nasa.gov" should match "nasa.gov"
     for trusted in TRUSTED_DOMAINS:
         if domain_lower.endswith(f".{trusted}"):
+            return True
+    
+    return False
+
+
+def _is_academic_domain(domain: str) -> bool:
+    """
+    Check if domain is in ACADEMIC_DOMAINS or is a subdomain of one.
+    
+    Academic domains get a higher trust bonus (45 points vs 25 for general trusted domains).
+    
+    Examples:
+        "sciencedirect.com" -> True (exact match)
+        "www.nature.com" -> True (subdomain of nature.com)
+        "blog.example.com" -> False
+    
+    Args:
+        domain: Domain to check (e.g., "link.springer.com")
+    
+    Returns:
+        True if domain is academic (exact or subdomain match), False otherwise
+    """
+    domain_lower = domain.lower()
+    
+    # Check exact match
+    if domain_lower in ACADEMIC_DOMAINS:
+        return True
+    
+    # Check if it's a subdomain of any academic domain
+    for academic in ACADEMIC_DOMAINS:
+        if domain_lower.endswith(f".{academic}"):
             return True
     
     return False

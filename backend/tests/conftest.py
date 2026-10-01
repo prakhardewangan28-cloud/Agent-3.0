@@ -1,7 +1,19 @@
 """Pytest configuration and fixtures."""
 import pytest
+import asyncio
 from fastapi.testclient import TestClient
 from app.main import app
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """
+    Create a session-scoped event loop for all async tests.
+    This prevents event loop closure issues between tests.
+    """
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture(autouse=True)

@@ -15,9 +15,8 @@ logger = logging.getLogger(__name__)
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
-    # Supabase Configuration
-    supabase_url: str
-    supabase_key: str
+    # Neon Postgres Configuration
+    database_url: str
     
     # SerpAPI Configuration
     serpapi_key: str
@@ -31,7 +30,7 @@ class Settings(BaseSettings):
     # Application Configuration
     log_level: str = "INFO"
     max_search_results: int = 10
-    mock_mode: bool = True  # default True during development
+    mock_mode: str = "false"  # "false" | "partial" | "true"
     
     model_config = SettingsConfigDict(
         env_file=_ENV_FILE,
@@ -40,19 +39,48 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
-    @field_validator('supabase_url', 'supabase_key', 'serpapi_key', 'gemini_api_key')
+    @property
+    def is_llm_mocked(self) -> bool:
+        """Returns True if LLM calls should use mock data."""
+        return self.mock_mode.lower() in ("true", "partial")
+    
+    @property
+    def is_db_mocked(self) -> bool:
+        """Returns True if database calls should use mock data."""
+        return self.mock_mode.lower() == "true"
+    
+    @property
+    def is_search_mocked(self) -> bool:
+        """Returns True if search API calls should use mock data."""
+        return self.mock_mode.lower() == "true"
+    
+    @field_validator('database_url')
+    @classmethod
+    def validate_database_url(cls, v: str) -> str:
+        """Validate DATABASE_URL starts with postgresql://"""
+        if not v:
+            raise ValueError("DATABASE_URL cannot be empty")
+        
+        v = v.strip().strip('"').strip("'")
+        
+        if not v.startswith('postgresql://') and not v.startswith('postgres://'):
+            raise ValueError(f"DATABASE_URL must start with postgresql:// or postgres://, got: {v[:30]}...")
+        
+        logger.info(f"✅ Database URL validated: {v.split('@')[0]}@...")
+        return v
+    
+    @field_validator('serpapi_key', 'gemini_api_key')
     @classmethod
     def validate_api_keys(cls, v: str, info) -> str:
         """Strip whitespace and quotes, check for placeholder values (skip in mock mode)."""
         # Get settings to check mock_mode - use default if not set yet
-        from pydantic_settings import BaseSettings
         try:
             mock_mode = info.data.get('mock_mode', True)
         except:
             mock_mode = True
         
         # In mock mode, accept placeholder values
-        if mock_mode and info.field_name in ['supabase_url', 'supabase_key', 'serpapi_key', 'gemini_api_key']:
+        if mock_mode and info.field_name in ['serpapi_key', 'gemini_api_key']:
             return v or "mock_value"
         
         if not v:
@@ -64,11 +92,6 @@ class Settings(BaseSettings):
         # Check for placeholder values
         placeholder_words = ['your-', 'placeholder', '<', '>']
         v_lower = v.lower()
-        
-        # Skip placeholder check for Supabase publishable keys (sb_publishable_ is valid)
-        if info.field_name == 'supabase_key' and v.startswith('sb_publishable_'):
-            logger.info(f"✅ Supabase publishable key detected: {v[:20]}...")
-            return v
         
         # Skip placeholder check for Gemini AQ. keys
         if info.field_name == 'gemini_api_key' and v.startswith('AQ.'):

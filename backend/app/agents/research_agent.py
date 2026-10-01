@@ -28,7 +28,7 @@ from app.services import (
     generate_counter_argument,
 )
 from app.services.gemini_client import generate
-from app.db.supabase_client import (
+from app.db.neon_client import (
     create_session,
     update_session_status,
     update_session_final_report,
@@ -155,7 +155,7 @@ async def plan_node(state: ResearchState) -> ResearchState:
         refined_query = state["refined_query"]
         
         # Mock mode: use all three engines
-        if settings.mock_mode:
+        if settings.is_llm_mocked:
             engines = ["google", "news", "scholar"]
             logger.info(f"MOCK MODE: Planned engines: {engines}")
             state["planned_engines"] = engines
@@ -482,7 +482,7 @@ Rules:
 - Use markdown formatting"""
         
         # Generate report
-        if settings.mock_mode:
+        if settings.is_llm_mocked:
             report = f"""# Research Report: {refined_query}
 
 ## Summary

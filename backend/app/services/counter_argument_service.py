@@ -9,7 +9,7 @@ from typing import Dict, Any, List
 
 from app.config import settings
 from app.services.gemini_client import generate
-from app.db.supabase_client import get_sources_by_session
+from app.db.neon_client import get_sources_by_session
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ async def generate_counter_argument(
         }
     
     # Mock mode: return mock counter-argument
-    if settings.mock_mode:
+    if settings.is_llm_mocked:
         mock_result = {
             "counter_argument": (
                 "Mock counter-argument: some sources suggest alternative "

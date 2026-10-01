@@ -32,13 +32,15 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     logger.info(f"MOCK_MODE: {settings.mock_mode}")
     
-    # Check Supabase
+    # Check Neon Database
     try:
-        from app.db.supabase_client import supabase
-        response = supabase.table("research_sessions").select("id").limit(1).execute()
-        logger.info("✓ Supabase connection: OK")
+        from app.db.neon_client import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        logger.info("✓ Neon connection: OK")
     except Exception as e:
-        logger.warning(f"✗ Supabase connection: FAILED - {e}")
+        logger.warning(f"✗ Neon connection: FAILED - {e}")
     
     # Check SerpAPI key
     if settings.serpapi_key:
@@ -59,6 +61,15 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down...")
+    
+    # Close Neon connection pool
+    try:
+        from app.db.neon_client import close_pool
+        await close_pool()
+        logger.info("✓ Neon pool closed")
+    except Exception as e:
+        logger.warning(f"✗ Failed to close Neon pool: {e}")
+    
     # Close any open SSE streams
     from app.api.routes import _session_streams
     if _session_streams:

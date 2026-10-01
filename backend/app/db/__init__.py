@@ -1,10 +1,13 @@
-"""Database layer for Supabase integration."""
-from .supabase_client import (
-    get_supabase_client,
-    supabase,
+"""Database layer for Neon Postgres integration."""
+from .neon_client import (
+    get_pool,
+    close_pool,
+    get_mock,
     # Research Sessions
     create_session,
     update_session_status,
+    update_session_final_report,
+    update_session_counter_argument,
     get_session,
     # Sources
     insert_sources,
@@ -23,11 +26,14 @@ from .supabase_client import (
 )
 
 __all__ = [
-    "get_supabase_client",
-    "supabase",
+    "get_pool",
+    "close_pool",
+    "get_mock",
     # Research Sessions
     "create_session",
     "update_session_status",
+    "update_session_final_report",
+    "update_session_counter_argument",
     "get_session",
     # Sources
     "insert_sources",

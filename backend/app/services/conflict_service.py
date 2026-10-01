@@ -11,9 +11,27 @@ from typing import Dict, Any, List, Tuple, Optional
 
 from app.config import settings
 from app.services.gemini_client import generate
-from app.db.supabase_client import supabase
+from app.db.neon_client import (
+    get_claims_by_session,
+    find_similar_claims,
+    get_sources_by_session,
+    get_conflicts_by_session,
+    insert_conflicts,
+)
 
 logger = logging.getLogger(__name__)
+
+# Realistic conflict explanations for mock mode
+REALISTIC_CONFLICTS = [
+    "One source emphasizes cardiovascular benefits while another highlights digestive effects.",
+    "The sources disagree on whether benefits are attributable to fiber or polyphenols.",
+    "Some studies report statistically significant effects while others find only trends.",
+    "The evidence is stronger for certain apple varieties than for others.",
+    "Results vary by population studied, with some groups showing greater effects.",
+    "One study uses fresh apples while another examines processed apple products.",
+    "The magnitude of blood sugar effects differs between controlled trials and observational studies.",
+    "Some research shows dose-dependent effects while other studies find threshold effects.",
+]
 
 
 # ============================================================================
@@ -53,7 +71,6 @@ async def find_similar_claim_pairs(
     
     # Fetch all claims for the session
     try:
-        from app.db.supabase_client import get_claims_by_session, get_sources_by_session
         claims = await get_claims_by_session(session_id)
         sources = await get_sources_by_session(session_id)
         
@@ -79,7 +96,6 @@ async def find_similar_claim_pairs(
         
         # Find similar claims using vector search
         try:
-            from app.db.supabase_client import find_similar_claims
             similar_claims = await find_similar_claims(
                 claim_a["embedding"],
                 threshold=similarity_threshold,
@@ -118,7 +134,7 @@ async def find_similar_claim_pairs(
                 break
     
     # Mock mode fallback: generate synthetic pairs if needed
-    if settings.mock_mode and len(pairs) == 0 and len(claims) >= 2:
+    if settings.is_llm_mocked and len(pairs) == 0 and len(claims) >= 2:
         logger.debug("MOCK MODE: Generating synthetic claim pairs")
         # Create pairs from existing claims only if we have NO pairs
         for i in range(min(2, len(claims) - 1)):
@@ -169,15 +185,20 @@ async def judge_pair(
         f"Judging pair: claim {claim_a.get('id')} vs {claim_b.get('id')}"
     )
     
-    # Mock mode: return synthetic conflict
-    if settings.mock_mode:
-        logger.debug("MOCK MODE: Returning synthetic conflict")
+    # Mock mode: return realistic conflict
+    if settings.is_llm_mocked:
+        logger.debug("MOCK MODE: Returning realistic conflict")
+        # Pick a conflict explanation based on claim IDs
+        conflict_idx = (claim_a["id"] + claim_b["id"]) % len(REALISTIC_CONFLICTS)
+        # Ensure claim_a_id < claim_b_id to satisfy DB constraint
+        id_a = min(claim_a["id"], claim_b["id"])
+        id_b = max(claim_a["id"], claim_b["id"])
         return {
-            "claim_a_id": claim_a["id"],
-            "claim_b_id": claim_b["id"],
-            "conflict_type": "contradiction",
-            "confidence": 0.8,
-            "explanation": "Mock conflict between two similar claims",
+            "claim_a_id": id_a,
+            "claim_b_id": id_b,
+            "conflict_type": "disagreement",
+            "confidence": 0.68 + (conflict_idx % 4) * 0.06,  # Vary 0.68-0.86
+            "explanation": REALISTIC_CONFLICTS[conflict_idx],
         }
     
     # Real mode: use Gemini to judge
@@ -335,7 +356,6 @@ async def detect_conflicts(session_id: str) -> List[Dict[str, Any]]:
     
     # Batch insert into database
     try:
-        from app.db.supabase_client import insert_conflicts
         stored_conflicts = await insert_conflicts(session_id, all_conflicts)
         
         logger.info(
@@ -365,15 +385,19 @@ async def _judge_pairs_batch(
         return []
     
     # Mock mode
-    if settings.mock_mode:
+    if settings.is_llm_mocked:
         conflicts = []
-        for claim_a, claim_b, _ in pairs:
+        for idx, (claim_a, claim_b, _) in enumerate(pairs):
+            conflict_idx = (idx + claim_a["id"]) % len(REALISTIC_CONFLICTS)
+            # Ensure claim_a_id < claim_b_id to satisfy DB constraint
+            id_a = min(claim_a["id"], claim_b["id"])
+            id_b = max(claim_a["id"], claim_b["id"])
             conflicts.append({
-                "claim_a_id": claim_a["id"],
-                "claim_b_id": claim_b["id"],
-                "conflict_type": "contradiction",
-                "confidence": 0.8,
-                "explanation": "Mock conflict between two similar claims",
+                "claim_a_id": id_a,
+                "claim_b_id": id_b,
+                "conflict_type": "disagreement",
+                "confidence": 0.68 + (conflict_idx % 4) * 0.06,
+                "explanation": REALISTIC_CONFLICTS[conflict_idx],
             })
         return conflicts
     
@@ -474,13 +498,6 @@ async def classify_information_landscape(session_id: str) -> Dict[str, Any]:
     
     # Fetch all data
     try:
-        from app.db.supabase_client import (
-            get_claims_by_session,
-            get_conflicts_by_session,
-            get_sources_by_session,
-            find_similar_claims,
-        )
-        
         claims = await get_claims_by_session(session_id)
         conflicts = await get_conflicts_by_session(session_id)
         sources = await get_sources_by_session(session_id)
@@ -578,10 +595,11 @@ async def classify_information_landscape(session_id: str) -> Dict[str, Any]:
         
         # Check for cross-references (similar claims from different sources)
         cross_reference_count = 0
-        if "embedding" in claim:
+        embedding = claim.get("embedding")
+        if embedding is not None and len(embedding) > 0:
             try:
                 similar = await find_similar_claims(
-                    claim["embedding"],
+                    embedding,
                     threshold=0.85,
                     limit=5
                 )
@@ -593,6 +611,16 @@ async def classify_information_landscape(session_id: str) -> Dict[str, Any]:
                 )
             except Exception as e:
                 logger.warning(f"Failed to find similar claims for {claim_id}: {e}")
+        else:
+            # No embedding available (mock mode or embedding generation failed)
+            if settings.is_llm_mocked and credibility >= 60:
+                # In partial mock mode, simulate cross-references for high-credibility claims
+                # Use claim_id to deterministically assign cross-references
+                cross_reference_count = 1 + (claim_id % 3 > 0)  # Most get 1-2 refs
+                logger.debug(
+                    f"Mock mode: assigned {cross_reference_count} cross-refs to claim {claim_id} "
+                    f"(credibility={credibility:.1f})"
+                )
         
         # CONSENSUS: high credibility + cross-references
         if credibility >= 60 and cross_reference_count >= 1:

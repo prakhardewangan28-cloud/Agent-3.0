@@ -17,7 +17,7 @@ from app.services.conflict_service import (
 @pytest.mark.asyncio
 async def test_find_similar_pairs_empty_session():
     """Test that empty session returns empty list"""
-    with patch("app.db.supabase_client.get_claims_by_session", new_callable=AsyncMock) as mock_get:
+    with patch("app.services.conflict_service.get_claims_by_session", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = []
         
         pairs = await find_similar_claim_pairs("empty-session")
@@ -30,18 +30,22 @@ async def test_find_similar_pairs_empty_session():
 async def test_find_similar_pairs_deduplicates():
     """Test that pairs (a,b) and (b,a) are deduplicated"""
     # Create claims with different IDs
-    claim_1 = {"id": 1, "claim_text": "Claim A", "embedding": [0.1] * 1536}
-    claim_2 = {"id": 2, "claim_text": "Claim B", "embedding": [0.2] * 1536}
+    claim_1 = {"id": 1, "claim_text": "Claim A", "embedding": [0.1] * 1536, "source_id": 1}
+    claim_2 = {"id": 2, "claim_text": "Claim B", "embedding": [0.2] * 1536, "source_id": 2}
     mock_claims = [claim_1, claim_2]
+    mock_sources = [{"id": 1, "domain": "example.com"}, {"id": 2, "domain": "test.com"}]
     
     call_count = {"count": 0}
     
-    with patch("app.db.supabase_client.get_claims_by_session", new_callable=AsyncMock) as mock_get, \
-         patch("app.db.supabase_client.find_similar_claims", new_callable=AsyncMock) as mock_similar:
+    # Patch at the conflict_service module level where functions are now imported
+    with patch("app.services.conflict_service.get_claims_by_session", new_callable=AsyncMock) as mock_get, \
+         patch("app.services.conflict_service.find_similar_claims", new_callable=AsyncMock) as mock_similar, \
+         patch("app.services.conflict_service.get_sources_by_session", new_callable=AsyncMock) as mock_sources_fn:
         
         mock_get.return_value = mock_claims
+        mock_sources_fn.return_value = mock_sources
         
-        # Mock find_similar_claims to return the other claim
+        # Mock find_similar_claims to return results in the expected format
         async def similar_side_effect(embedding, threshold, limit):
             call_count["count"] += 1
             # First call (for claim 1) returns claim 2
@@ -67,8 +71,8 @@ async def test_find_similar_pairs_skips_self_matches():
     """Test that self-matches are skipped"""
     mock_claim = {"id": 1, "claim_text": "Test claim", "embedding": [0.1] * 1536}
     
-    with patch("app.db.supabase_client.get_claims_by_session", new_callable=AsyncMock) as mock_get, \
-         patch("app.db.supabase_client.find_similar_claims", new_callable=AsyncMock) as mock_similar:
+    with patch("app.services.conflict_service.get_claims_by_session", new_callable=AsyncMock) as mock_get, \
+         patch("app.services.conflict_service.find_similar_claims", new_callable=AsyncMock) as mock_similar:
         
         mock_get.return_value = [mock_claim]
         # Return the same claim as similar (self-match)
@@ -202,7 +206,7 @@ async def test_detect_conflicts_stores_via_insert():
     
     with patch("app.services.conflict_service.find_similar_claim_pairs", new_callable=AsyncMock) as mock_pairs_fn, \
          patch("app.services.conflict_service._judge_pairs_batch", new_callable=AsyncMock) as mock_judge_batch, \
-         patch("app.db.supabase_client.insert_conflicts", new_callable=AsyncMock) as mock_insert:
+         patch("app.services.conflict_service.insert_conflicts", new_callable=AsyncMock) as mock_insert:
         
         mock_pairs_fn.return_value = mock_pairs
         mock_judge_batch.return_value = [mock_conflict]  # Returns list of conflicts
@@ -226,10 +230,10 @@ async def test_classify_landscape_returns_valid_structure():
         {"id": 1, "domain": "test.com", "credibility_score": 70.0}
     ]
     
-    with patch("app.db.supabase_client.get_claims_by_session", new_callable=AsyncMock) as mock_claims_fn, \
-         patch("app.db.supabase_client.get_conflicts_by_session", new_callable=AsyncMock) as mock_conflicts, \
-         patch("app.db.supabase_client.get_sources_by_session", new_callable=AsyncMock) as mock_sources_fn, \
-         patch("app.db.supabase_client.find_similar_claims", new_callable=AsyncMock) as mock_similar:
+    with patch("app.services.conflict_service.get_claims_by_session", new_callable=AsyncMock) as mock_claims_fn, \
+         patch("app.services.conflict_service.get_conflicts_by_session", new_callable=AsyncMock) as mock_conflicts, \
+         patch("app.services.conflict_service.get_sources_by_session", new_callable=AsyncMock) as mock_sources_fn, \
+         patch("app.services.conflict_service.find_similar_claims", new_callable=AsyncMock) as mock_similar:
         
         mock_claims_fn.return_value = mock_claims
         mock_conflicts.return_value = []
@@ -274,10 +278,10 @@ async def test_classify_landscape_buckets_contested_claim():
         {"id": 2, "domain": "test2.com", "credibility_score": 75.0},
     ]
     
-    with patch("app.db.supabase_client.get_claims_by_session", new_callable=AsyncMock) as mock_claims_fn, \
-         patch("app.db.supabase_client.get_conflicts_by_session", new_callable=AsyncMock) as mock_conflicts_fn, \
-         patch("app.db.supabase_client.get_sources_by_session", new_callable=AsyncMock) as mock_sources_fn, \
-         patch("app.db.supabase_client.find_similar_claims", new_callable=AsyncMock) as mock_similar:
+    with patch("app.services.conflict_service.get_claims_by_session", new_callable=AsyncMock) as mock_claims_fn, \
+         patch("app.services.conflict_service.get_conflicts_by_session", new_callable=AsyncMock) as mock_conflicts_fn, \
+         patch("app.services.conflict_service.get_sources_by_session", new_callable=AsyncMock) as mock_sources_fn, \
+         patch("app.services.conflict_service.find_similar_claims", new_callable=AsyncMock) as mock_similar:
         
         mock_claims_fn.return_value = mock_claims
         mock_conflicts_fn.return_value = mock_conflicts

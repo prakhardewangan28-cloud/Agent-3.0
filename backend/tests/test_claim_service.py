@@ -11,7 +11,7 @@ from app.services.claim_service import (
     extract_and_store_claims,
     extract_claims_batch
 )
-from app.db.supabase_client import get_supabase_client
+from app.db.neon_client import get_mock
 
 
 @pytest.mark.asyncio
@@ -108,7 +108,7 @@ async def test_extract_and_store_claims_basic():
         ]
 
     with patch("app.config.settings.mock_mode", True), \
-         patch("app.db.supabase_client.insert_claims", side_effect=_fake_insert_claims):
+         patch("app.db.neon_client.insert_claims", side_effect=_fake_insert_claims):
         stored_claims = await extract_and_store_claims(source, session_id)
 
     assert isinstance(stored_claims, list)

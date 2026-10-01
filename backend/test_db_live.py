@@ -2,7 +2,7 @@ import asyncio
 import sys
 sys.path.append(".")
 
-from app.db.supabase_client import (
+from app.db.neon_client import (
     create_session, get_session, 
     insert_sources, get_sources_by_session
 )

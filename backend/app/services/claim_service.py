@@ -13,9 +13,64 @@ from datetime import datetime
 
 from app.config import settings
 from app.services.gemini_client import generate, embed
-from app.db.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
+
+# Realistic claims pool for mock mode (30+ unique claims for diversity)
+REALISTIC_CLAIMS = [
+    # Cardiovascular benefits
+    "Regular apple consumption is associated with a lower risk of cardiovascular disease.",
+    "Apple intake has been linked to reduced LDL cholesterol levels in multiple observational studies.",
+    "The soluble fiber pectin in apples may help lower blood pressure in adults.",
+    
+    # Digestive and fiber benefits
+    "Apples contain dietary fiber that supports digestive health and regularity.",
+    "The fiber and polyphenols in apples may contribute to improved gut microbiome diversity.",
+    "Pectin, a type of soluble fiber in apples, acts as a prebiotic to support beneficial gut bacteria.",
+    
+    # Polyphenols and antioxidants
+    "The polyphenols in apples, particularly quercetin, have demonstrated antioxidant properties.",
+    "Apple antioxidants may reduce oxidative stress and inflammation markers in the body.",
+    "Catechin and epicatechin in apples have been studied for their anti-inflammatory effects.",
+    "Apple peel contains higher concentrations of polyphenols compared to the flesh.",
+    
+    # Blood sugar and metabolic effects
+    "Studies suggest apple intake may help regulate blood sugar levels due to their low glycemic index.",
+    "The fiber in apples slows glucose absorption, potentially benefiting glycemic control.",
+    "Regular apple consumption may reduce the risk of type 2 diabetes according to cohort studies.",
+    
+    # Cancer risk
+    "Apple consumption has been linked to reduced risk of certain cancers, including colorectal cancer.",
+    "Observational studies suggest an inverse association between apple intake and lung cancer risk.",
+    "The phytochemicals in apples have been investigated for potential anti-carcinogenic properties.",
+    
+    # Weight management
+    "Observational studies indicate an association between apple consumption and lower body mass index.",
+    "Some research suggests apples can support weight management due to their high satiety value.",
+    "Eating whole apples before meals may reduce overall caloric intake due to increased fullness.",
+    "The water and fiber content of apples contributes to feelings of satiety with relatively few calories.",
+    
+    # Immune and vitamin effects
+    "Vitamin C in apples contributes to immune system function and skin health.",
+    "Apple consumption may support respiratory health due to quercetin's anti-inflammatory properties.",
+    "The vitamin C and polyphenols in apples work synergistically to support antioxidant defenses.",
+    
+    # Specific compounds
+    "Quercetin in apples has been studied for its potential neuroprotective effects.",
+    "Chlorogenic acid in apples may contribute to improved liver function and glucose metabolism.",
+    "Ursolic acid found in apple peel has been investigated for muscle health and metabolism benefits.",
+    
+    # Comparative and contextual claims
+    "Apples rank among the top dietary sources of polyphenols in Western diets.",
+    "Organic apples may have higher polyphenol content compared to conventionally grown varieties.",
+    "Fresh apples retain more nutrients than processed apple products like juice or applesauce.",
+    
+    # Study limitations and methodological notes
+    "Most apple health studies are observational and cannot establish causation definitively.",
+    "The health effects of apples may vary depending on variety, ripeness, and storage conditions.",
+    "More randomized controlled trials are needed to confirm the cardiovascular benefits of apple consumption.",
+    "The bioavailability of apple polyphenols can be affected by individual gut microbiome composition.",
+]
 
 
 # ============================================================================
@@ -53,7 +108,7 @@ async def extract_claims_from_text(
         return []
     
     # Mock mode: return fake claims
-    if settings.mock_mode:
+    if settings.is_llm_mocked:
         mock_claims = [
             {
                 "claim": f"Mock claim {i+1} from source",
@@ -178,7 +233,7 @@ async def embed_claim(claim_text: str) -> List[float]:
         >>> len(emb)
         1536
     """
-    if settings.mock_mode:
+    if settings.is_llm_mocked:
         # Deterministic pseudo-random embedding based on claim text
         # This ensures same claim always gets same embedding
         embedding = _generate_deterministic_embedding(claim_text)
@@ -322,7 +377,7 @@ async def extract_and_store_claims(
     if claim_records:
         try:
             # Import the actual function instead of the module
-            from app.db.supabase_client import insert_claims
+            from app.db.neon_client import insert_claims
             stored_claims = await insert_claims(session_id, claim_records)
             
             duration_ms = (datetime.now() - start_time).total_seconds() * 1000
@@ -466,7 +521,7 @@ async def _extract_claims_batch_single_call(
     Returns:
         Dict mapping source_id to list of claims
     """
-    from app.db.supabase_client import insert_claims
+    from app.db.neon_client import insert_claims
     
     # Build prompt with all sources labeled by ID
     sources_text = ""
@@ -479,21 +534,27 @@ async def _extract_claims_batch_single_call(
         sources_text += f"\n[SOURCE_{source_id}]\n{text}\n"
     
     # Mock mode
-    if settings.mock_mode:
+    if settings.is_llm_mocked:
         await asyncio.sleep(0.1)
         results = {}
-        for source in sources:
+        for idx, source in enumerate(sources):
             source_id = source.get("id")
+            # Pick 2 realistic claims using different offsets to maximize diversity
+            # Use source_id hash for better distribution across 33 claims
+            source_hash = hash(str(source_id)) % len(REALISTIC_CLAIMS)
+            claim_1_idx = (source_hash + idx) % len(REALISTIC_CLAIMS)
+            claim_2_idx = (source_hash + idx + 17) % len(REALISTIC_CLAIMS)  # +17 ensures different claim
+            
             mock_claims = [
                 {
-                    "claim": f"Mock claim 1 from source {source_id}",
-                    "confidence": 0.9,
+                    "claim_text": REALISTIC_CLAIMS[claim_1_idx],
+                    "confidence": 0.88 + (idx % 3) * 0.04,  # Vary between 0.88-0.96
                     "source_id": source_id,
                     "session_id": session_id
                 },
                 {
-                    "claim": f"Mock claim 2 from source {source_id}",
-                    "confidence": 0.7,
+                    "claim_text": REALISTIC_CLAIMS[claim_2_idx],
+                    "confidence": 0.75 + (idx % 5) * 0.03,  # Vary between 0.75-0.87
                     "source_id": source_id,
                     "session_id": session_id
                 }
@@ -501,7 +562,7 @@ async def _extract_claims_batch_single_call(
             results[source_id] = mock_claims
             
             # Insert into DB
-            await insert_claims(mock_claims, session_id)
+            await insert_claims(session_id, mock_claims)
         
         return results
     

@@ -79,7 +79,7 @@ async def is_vague(query: str) -> bool:
         return False
     
     # Mock mode: simple word count rule
-    if settings.mock_mode:
+    if settings.is_llm_mocked:
         result = word_count < 6
         logger.info(f"Query classified as vague: {result} (MOCK MODE, word count: {word_count})")
         return result
@@ -198,7 +198,7 @@ async def generate_refinements(query: str) -> List[Dict[str, Any]]:
     logger.info(f"Generating refinements for query: {query[:50]}...")
     
     # Mock mode: return fake directions
-    if settings.mock_mode:
+    if settings.is_llm_mocked:
         directions = [
             {
                 "direction": f"{query} — academic perspective",

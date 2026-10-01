@@ -39,7 +39,7 @@ errors = []
 modules_to_test = [
     ("app.config", "Configuration"),
     ("app.main", "FastAPI application"),
-    ("app.db.supabase_client", "Database client"),
+    ("app.db.neon_client", "Database client"),
     ("app.services.serpapi_service", "SerpAPI service"),
     ("app.services.credibility_service", "Credibility service"),
     ("app.services.claim_service", "Claim service"),

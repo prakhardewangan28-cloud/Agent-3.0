@@ -196,7 +196,7 @@ async def test_run_research_with_refinement():
         # Mock create_session and insert_sources so no real Supabase UUID is needed.
         # The session_id "test-session-123" is not a valid UUID, so DB operations
         # must be intercepted before they reach Postgres.
-        with patch("app.db.supabase_client.create_session", new_callable=AsyncMock) as mock_session, \
+        with patch("app.db.neon_client.create_session", new_callable=AsyncMock) as mock_session, \
              patch("app.agents.research_agent.insert_sources", new_callable=AsyncMock) as mock_insert:
             mock_session.return_value = {"id": "test-session-123"}
             # Return minimal stored-source objects that downstream nodes expect
@@ -223,7 +223,7 @@ async def test_counter_argument_node_sets_state():
     from app.agents.research_agent import counter_argument_node
     
     with patch("app.config.settings.mock_mode", True), \
-         patch("app.db.supabase_client.get_sources_by_session", new_callable=AsyncMock) as mock_get_sources, \
+         patch("app.db.neon_client.get_sources_by_session", new_callable=AsyncMock) as mock_get_sources, \
          patch("app.agents.research_agent.update_session_counter_argument", new_callable=AsyncMock):
         
         # Mock sources

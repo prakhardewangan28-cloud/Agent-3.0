@@ -25,7 +25,7 @@ from app.models.schemas import (
 )
 from app.agents import run_research, run_research_with_refinement
 from app.services import refine_or_proceed
-from app.db.supabase_client import (
+from app.db.neon_client import (
     create_session,
     get_session,
     get_sources_by_session,
@@ -433,16 +433,27 @@ async def list_sessions():
     logger.info("GET /api/v1/sessions")
     
     try:
-        # Query supabase for recent sessions
-        from app.db.supabase_client import supabase
+        # Query Neon for recent sessions
+        from app.db.neon_client import get_pool
         
-        response = supabase.table("research_sessions")\
-            .select("id, original_query, status, created_at")\
-            .order("created_at", desc=True)\
-            .limit(20)\
-            .execute()
-        
-        sessions = response.data if response.data else []
+        if settings.is_db_mocked:
+            from app.db.neon_client import get_mock
+            mock = get_mock()
+            sessions = list(mock.sessions.values())
+            sessions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            sessions = sessions[:20]
+        else:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, original_query, status, created_at
+                    FROM research_sessions
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                    """
+                )
+                sessions = [dict(row) for row in rows]
         
         return [
             SessionListItem(

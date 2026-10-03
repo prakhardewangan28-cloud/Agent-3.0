@@ -142,7 +142,7 @@ async def health_check():
     """
     return HealthResponse(
         status="ok",
-        mock_mode=settings.mock_mode,
+        mock_mode=settings.is_llm_mocked,  # Convert string mock_mode to boolean
         version="0.1.0"
     )
 
@@ -167,7 +167,7 @@ async def start_research(request: ResearchStartRequest):
     try:
         # Create session
         session = await create_session(query)
-        session_id = session["id"]
+        session_id = str(session["id"])  # Convert UUID to string
         logger.info(f"Session created: {session_id}")
         
         # Check if refinement needed
@@ -293,7 +293,7 @@ async def get_research_results(session_id: str):
             "sources": sources,
             "conflicts": conflicts,
             "landscape": landscape,
-            "final_report": session.get("final_report"),
+            "final_report": session.get("final_report") or "",  # Ensure it's a string, not None
             "counter_argument": session.get("counter_argument"),
             "node_timings": session.get("node_timings", {}),
             "error": session.get("error"),
@@ -457,10 +457,10 @@ async def list_sessions():
         
         return [
             SessionListItem(
-                id=s["id"],
+                id=str(s["id"]),  # Convert UUID to string
                 original_query=s.get("original_query", ""),
                 status=s.get("status", "unknown"),
-                created_at=s.get("created_at", "")
+                created_at=s.get("created_at", "").isoformat() if isinstance(s.get("created_at", ""), datetime) else str(s.get("created_at", ""))  # Convert datetime to ISO string
             )
             for s in sessions
         ]

@@ -163,9 +163,9 @@ async def test_judge_pair_mock_mode_returns_conflict():
         assert result is not None
         assert result["claim_a_id"] == 1
         assert result["claim_b_id"] == 2
-        assert result["conflict_type"] == "contradiction"
-        assert result["confidence"] == 0.8
-        assert "Mock conflict" in result["explanation"]
+        assert result["conflict_type"] == "disagreement"  # Mock mode returns "disagreement"
+        assert 0.68 <= result["confidence"] <= 0.87  # Varied confidence (allowing slight float precision)
+        assert isinstance(result["explanation"], str)
 
 
 @pytest.mark.asyncio

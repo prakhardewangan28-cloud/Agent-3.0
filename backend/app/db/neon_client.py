@@ -27,6 +27,7 @@ class MockNeon:
         self.claims = {}
         self.conflicts = {}
         self.evidence_edges = {}
+        self.images = {}  # Add images storage
         self._id_counter = 1
         logger.info("🧪 MockNeon initialized - using in-memory storage")
     
@@ -94,7 +95,8 @@ async def close_pool():
 
 async def create_session(
     original_query: str,
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None,
+    language: str = "en"
 ) -> Dict[str, Any]:
     """
     Create a new research session.
@@ -102,6 +104,7 @@ async def create_session(
     Args:
         original_query: The original search query
         user_id: Optional user ID for authenticated users
+        language: Language code (en, hi, es, fr, de, pt, zh, ja, ar)
         
     Returns:
         Created session record
@@ -113,11 +116,13 @@ async def create_session(
             "id": session_id,
             "original_query": original_query,
             "user_id": user_id,
+            "language": language,
             "refined_query": None,
             "status": "in_progress",
             "created_at": datetime.now().isoformat(),
             "completed_at": None,
             "final_report": None,
+            "summary": None,
             "counter_argument": None
         }
         mock.sessions[session_id] = session
@@ -128,12 +133,13 @@ async def create_session(
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO research_sessions (original_query, user_id, status)
-            VALUES ($1, $2, 'in_progress')
+            INSERT INTO research_sessions (original_query, user_id, language, status)
+            VALUES ($1, $2, $3, 'in_progress')
             RETURNING *
             """,
             original_query,
-            user_id
+            user_id,
+            language
         )
         session = dict(row)
         logger.info(f"Created session: {session['id']}")
@@ -361,6 +367,7 @@ async def insert_sources(
                 "published_date": source.get("published_date"),
                 "is_ai_generated": source.get("is_ai_generated", False),
                 "ai_generation_confidence": source.get("ai_generation_confidence"),
+                "summary": source.get("summary"),  # Add summary field
                 "created_at": datetime.now().isoformat()
             }
             mock.sources[source_id] = source_record
@@ -401,9 +408,9 @@ async def insert_sources(
                 INSERT INTO sources (
                     session_id, url, title, snippet, domain, engine,
                     credibility_score, score_breakdown, published_date,
-                    is_ai_generated, ai_generation_confidence
+                    is_ai_generated, ai_generation_confidence, summary
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 RETURNING *
                 """,
                 session_id,
@@ -416,7 +423,8 @@ async def insert_sources(
                 json.dumps(source.get("score_breakdown")) if source.get("score_breakdown") else None,
                 source.get("published_date"),
                 source.get("is_ai_generated", False),
-                source.get("ai_generation_confidence")
+                source.get("ai_generation_confidence"),
+                source.get("summary")  # Add summary field
             )
             results.append(dict(row))
     
@@ -837,3 +845,129 @@ async def update_source_ai_flag(
         result = dict(row)
         logger.info(f"Updated AI flag for source {source_id}: is_ai={is_ai}, confidence={confidence}")
         return result
+
+
+
+async def update_session_summary(
+    session_id: str,
+    summary: str
+) -> Dict[str, Any]:
+    """
+    Update research session with executive summary.
+    
+    Args:
+        session_id: UUID of the session
+        summary: Executive summary (3-6 sentences)
+        
+    Returns:
+        Updated session record
+    """
+    if settings.is_db_mocked:
+        mock = get_mock()
+        if session_id not in mock.sessions:
+            raise ValueError(f"Session {session_id} not found")
+        
+        mock.sessions[session_id]["summary"] = summary
+        logger.info(f"MockNeon: Updated session {session_id} with summary ({len(summary)} chars)")
+        return mock.sessions[session_id]
+    
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE research_sessions
+            SET summary = $1
+            WHERE id = $2
+            RETURNING *
+            """,
+            summary,
+            session_id
+        )
+        
+        if not row:
+            raise ValueError(f"Session {session_id} not found")
+        
+        session = dict(row)
+        logger.info(f"Updated session {session_id} with summary ({len(summary)} chars)")
+        return session
+
+
+async def insert_images(
+    session_id: str,
+    images: List[Dict[str, Any]]
+) -> int:
+    """
+    Insert Google Images results for a session.
+    
+    Args:
+        session_id: UUID of the session
+        images: List of image dicts with keys: url, thumbnail, title, source_url, domain, is_placeholder
+        
+    Returns:
+        Number of images inserted
+    """
+    if not images:
+        return 0
+    
+    if settings.is_db_mocked:
+        mock = get_mock()
+        if session_id not in mock.sessions:
+            raise ValueError(f"Session {session_id} not found")
+        
+        mock.images[session_id] = images
+        logger.info(f"MockNeon: Inserted {len(images)} images for session {session_id}")
+        return len(images)
+    
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Insert images
+        inserted = 0
+        for img in images:
+            await conn.execute(
+                """
+                INSERT INTO session_images (
+                    session_id, url, thumbnail, title, source_url, domain, is_placeholder
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """,
+                session_id,
+                img.get("url"),
+                img.get("thumbnail"),
+                img.get("title", ""),
+                img.get("source_url"),
+                img.get("domain"),
+                img.get("is_placeholder", False)
+            )
+            inserted += 1
+        
+        logger.info(f"Inserted {inserted} images for session {session_id}")
+        return inserted
+
+
+async def get_images_by_session(session_id: str) -> List[Dict[str, Any]]:
+    """
+    Get all images for a session.
+    
+    Args:
+        session_id: UUID of the session
+        
+    Returns:
+        List of image dicts
+    """
+    if settings.is_db_mocked:
+        mock = get_mock()
+        return mock.images.get(session_id, [])
+    
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT url, thumbnail, title, source_url, domain, is_placeholder, created_at
+            FROM session_images
+            WHERE session_id = $1
+            ORDER BY id ASC
+            """,
+            session_id
+        )
+        
+        return [dict(row) for row in rows]

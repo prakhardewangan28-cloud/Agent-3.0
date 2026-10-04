@@ -590,6 +590,7 @@ async def classify_information_landscape(session_id: str) -> Dict[str, Any]:
                 "domain": domain,
                 "credibility_score": credibility,
                 "conflicts_with": claim_conflicts.get(claim_id, []),
+                "is_high_confidence": False,  # Contested claims are not high-confidence by definition
             })
             continue
         
@@ -624,6 +625,13 @@ async def classify_information_landscape(session_id: str) -> Dict[str, Any]:
         
         # CONSENSUS: high credibility + cross-references
         if credibility >= 60 and cross_reference_count >= 1:
+            # Determine if high-confidence
+            # Lower threshold to 60 since academic sources score 60-65
+            is_high_confidence = (
+                credibility >= 60
+                and cross_reference_count >= 2
+            )
+            
             consensus.append({
                 "claim_id": claim_id,
                 "claim_text": claim_text,
@@ -631,6 +639,7 @@ async def classify_information_landscape(session_id: str) -> Dict[str, Any]:
                 "domain": domain,
                 "credibility_score": credibility,
                 "supporting_source_count": cross_reference_count,
+                "is_high_confidence": is_high_confidence,
             })
         # UNKNOWN: low credibility or no cross-references
         else:
@@ -642,6 +651,7 @@ async def classify_information_landscape(session_id: str) -> Dict[str, Any]:
                 "domain": domain,
                 "credibility_score": credibility,
                 "reason": reason,
+                "is_high_confidence": False,
             })
     
     landscape = {

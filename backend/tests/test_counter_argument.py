@@ -195,7 +195,7 @@ async def test_generate_counter_argument_parses_valid_json(
          patch("app.services.counter_argument_service.get_sources_by_session", new_callable=AsyncMock) as mock_get_sources, \
          patch("app.services.counter_argument_service.generate", new_callable=AsyncMock) as mock_generate:
         
-        mock_settings.mock_mode = False
+        mock_settings.is_llm_mocked = False  # Mock the property, not mock_mode
         mock_get_sources.return_value = mock_sources
         mock_generate.return_value = valid_json_response
         
@@ -235,7 +235,7 @@ async def test_generate_counter_argument_handles_malformed_json_with_retry(
          patch("app.services.counter_argument_service.get_sources_by_session", new_callable=AsyncMock) as mock_get_sources, \
          patch("app.services.counter_argument_service.generate", new_callable=AsyncMock) as mock_generate:
         
-        mock_settings.mock_mode = False
+        mock_settings.is_llm_mocked = False  # Mock the property
         mock_get_sources.return_value = mock_sources
         
         # First call returns malformed, second call returns valid
@@ -267,7 +267,7 @@ async def test_generate_counter_argument_returns_none_when_llm_fails(
          patch("app.services.counter_argument_service.get_sources_by_session", new_callable=AsyncMock) as mock_get_sources, \
          patch("app.services.counter_argument_service.generate", new_callable=AsyncMock) as mock_generate:
         
-        mock_settings.mock_mode = False
+        mock_settings.is_llm_mocked = False  # Mock the property
         mock_get_sources.return_value = mock_sources
         
         # Both calls fail
@@ -307,7 +307,7 @@ async def test_generate_counter_argument_only_cites_existing_sources(
          patch("app.services.counter_argument_service.get_sources_by_session", new_callable=AsyncMock) as mock_get_sources, \
          patch("app.services.counter_argument_service.generate", new_callable=AsyncMock) as mock_generate:
         
-        mock_settings.mock_mode = False
+        mock_settings.is_llm_mocked = False  # Mock the property
         mock_get_sources.return_value = mock_sources
         mock_generate.return_value = response_with_invalid_id
         
@@ -352,7 +352,7 @@ async def test_generate_counter_argument_strength_always_valid(
              patch("app.services.counter_argument_service.get_sources_by_session", new_callable=AsyncMock) as mock_get_sources, \
              patch("app.services.counter_argument_service.generate", new_callable=AsyncMock) as mock_generate:
             
-            mock_settings.mock_mode = False
+            mock_settings.is_llm_mocked = False  # Mock the property
             mock_get_sources.return_value = mock_sources
             mock_generate.return_value = response
             

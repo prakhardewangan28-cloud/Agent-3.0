@@ -373,3 +373,101 @@ async def search_scholar(query: str, num_results: int | None = None) -> List[Dic
             exc_info=True
         )
         return []
+
+
+async def search_images(query: str, num: int = 6, language: str = "en") -> List[Dict[str, Any]]:
+    """
+    Search Google Images via SerpAPI.
+    
+    Args:
+        query: Search query
+        num: Number of images to return (default: 6)
+        language: Language code (en, hi, es, etc.)
+    
+    Returns:
+        List of image dicts with keys: url, thumbnail, title, source_url, domain
+    
+    Example:
+        >>> images = await search_images("healthy apples", num=6)
+        >>> len(images) <= 6
+        True
+    """
+    from app.config import settings
+    
+    # Mock mode: return placeholder images
+    if settings.is_search_mocked:
+        logger.info(f"MOCK MODE: Returning {num} placeholder images for query: {query}")
+        return [
+            {
+                "url": f"https://picsum.photos/seed/{i}/800/600",
+                "thumbnail": f"https://picsum.photos/seed/{i}/200/150",
+                "title": f"Sample image {i+1} for {query[:30]}",
+                "source_url": "https://example.com",
+                "domain": "example.com",
+                "is_placeholder": True
+            }
+            for i in range(min(num, 6))
+        ]
+    
+    # Real mode: call SerpAPI
+    try:
+        # Map language to country code
+        country_map = {
+            "en": "us", "hi": "in", "es": "es", "fr": "fr",
+            "de": "de", "pt": "br", "zh": "cn", "ja": "jp", "ar": "eg"
+        }
+        country = country_map.get(language, "us")
+        
+        params = {
+            "engine": "google_images",
+            "q": query,
+            "num": num,
+            "hl": language,
+            "gl": country,
+            "api_key": settings.serpapi_key
+        }
+        
+        start_time = time.time()
+        logger.info(f"Starting Google Images search: query='{query}', num={num}, lang={language}")
+        
+        search = GoogleSearch(params)
+        results = search.get_dict()
+        
+        duration = (time.time() - start_time) * 1000
+        
+        # Extract images
+        images = []
+        raw_results = results.get("images_results", [])
+        logger.info(f"SerpAPI returned {len(raw_results)} raw image results")
+        
+        for img in raw_results[:num]:
+            images.append({
+                "url": img.get("original"),
+                "thumbnail": img.get("thumbnail"),
+                "title": img.get("title", ""),
+                "source_url": img.get("link", ""),
+                "domain": img.get("source", ""),
+                "is_placeholder": False
+            })
+        
+        logger.info(f"Google Images search complete: query='{query}', results={len(images)}, duration={duration:.2f}ms")
+        
+        if not images and raw_results:
+            logger.warning(f"SerpAPI returned results but parsing failed. Keys in first result: {list(raw_results[0].keys()) if raw_results else 'none'}")
+        
+        return images
+        
+    except Exception as e:
+        logger.error(f"Google Images search failed: {e}")
+        # Fallback to placeholder images
+        return [
+            {
+                "url": f"https://picsum.photos/seed/{i}/800/600",
+                "thumbnail": f"https://picsum.photos/seed/{i}/200/150",
+                "title": f"Fallback image {i+1}",
+                "source_url": "https://example.com",
+                "domain": "example.com",
+                "is_placeholder": True
+            }
+            for i in range(min(num, 3))
+        ]

@@ -42,16 +42,23 @@ class Settings(BaseSettings):
     @property
     def is_llm_mocked(self) -> bool:
         """Returns True if LLM calls should use mock data."""
+        # Handle both old boolean format and new string format
+        if isinstance(self.mock_mode, bool):
+            return self.mock_mode
         return self.mock_mode.lower() in ("true", "partial")
     
     @property
     def is_db_mocked(self) -> bool:
         """Returns True if database calls should use mock data."""
+        if isinstance(self.mock_mode, bool):
+            return self.mock_mode
         return self.mock_mode.lower() == "true"
     
     @property
     def is_search_mocked(self) -> bool:
         """Returns True if search API calls should use mock data."""
+        if isinstance(self.mock_mode, bool):
+            return self.mock_mode
         return self.mock_mode.lower() == "true"
     
     @field_validator('database_url')

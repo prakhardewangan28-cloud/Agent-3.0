@@ -20,6 +20,7 @@ class SearchQuery(BaseModel):
 class ResearchStartRequest(BaseModel):
     """Request to start research."""
     query: str = Field(..., min_length=1, max_length=500)
+    language: str = Field("en", pattern="^(en|hi|es|fr|de|pt|zh|ja|ar)$")
 
 
 class ResearchStartResponse(BaseModel):

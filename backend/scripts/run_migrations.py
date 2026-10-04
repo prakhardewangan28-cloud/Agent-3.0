@@ -31,6 +31,7 @@ async def run_migrations():
         migrations_dir / "003_add_missing_columns.sql",
         migrations_dir / "004_add_counter_argument.sql",
         migrations_dir / "005_fix_credibility_scale.sql",
+        migrations_dir / "006_add_frontend_support.sql",
     ]
     
     # Filter to only existing files

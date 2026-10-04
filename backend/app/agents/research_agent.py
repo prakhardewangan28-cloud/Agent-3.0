@@ -32,6 +32,7 @@ from app.db.neon_client import (
     create_session,
     update_session_status,
     update_session_final_report,
+    update_session_summary,
     update_session_counter_argument,
     insert_sources,
     get_claims_by_session,
@@ -288,6 +289,70 @@ async def score_node(state: ResearchState) -> ResearchState:
         return state
 
 
+async def _generate_source_summary(source: Dict[str, Any], query: str) -> str:
+    """
+    Generate a 1-2 sentence summary for why this source matters.
+    
+    Uses rule-based templates in partial mock mode, LLM in real mode.
+    """
+    from app.config import settings
+    from app.services.credibility_service import ACADEMIC_DOMAINS
+    
+    domain = source.get("domain", "")
+    credibility = source.get("credibility_score", 0)
+    snippet = source.get("snippet", "")
+    
+    # Extract key topic from query (simple approach: first 3 meaningful words)
+    topic_words = [w for w in query.lower().split() if len(w) > 3][:3]
+    topic = " ".join(topic_words) if topic_words else "this topic"
+    
+    # If credibility is too low, skip summary
+    if credibility < 50:
+        return ""
+    
+    # Partial or full mock mode: use templates
+    if settings.is_llm_mocked:
+        # Check if academic domain
+        domain_lower = domain.lower()
+        is_academic = domain_lower in ACADEMIC_DOMAINS or any(
+            domain_lower.endswith(f".{academic}") for academic in ACADEMIC_DOMAINS
+        )
+        
+        if is_academic:
+            return f"Peer-reviewed research on {topic}. Relevance: {domain} is a trusted academic publisher."
+        elif domain.endswith((".gov", ".edu")):
+            return f"Official information about {topic} from {domain}."
+        elif source.get("engine") == "news":
+            return f"News coverage of {topic} from {domain}."
+        else:
+            return f"Provides evidence about {topic} from {domain}."
+    
+    # Real LLM mode: generate custom summary
+    from app.services.gemini_client import generate
+    
+    try:
+        prompt = f"""In 1-2 sentences, explain why this source matters for answering: "{query}"
+
+Source: {domain}
+Snippet: {snippet[:200]}
+
+Write a brief, factual explanation. No bullet points."""
+        
+        summary = await generate(prompt)
+        # Clean up
+        summary = summary.strip().replace("\n", " ")
+        # Limit to ~120 chars
+        if len(summary) > 120:
+            sentences = summary.split(". ")
+            summary = sentences[0] + "."
+        
+        return summary
+    except Exception as e:
+        logger.warning(f"Failed to generate source summary: {e}")
+        # Fallback to snippet
+        return snippet[:120] if snippet else ""
+
+
 @timed_node("store")
 async def store_node(state: ResearchState) -> ResearchState:
     """
@@ -298,11 +363,18 @@ async def store_node(state: ResearchState) -> ResearchState:
     try:
         session_id = state["session_id"]
         scored_sources = state["scored_sources"]
+        query = state.get("refined_query", state["original_query"])
         
         if not scored_sources:
             logger.warning("No sources to store")
             state["stored_sources"] = []
             return state
+        
+        # Generate summaries for sources before storing
+        logger.info(f"Generating summaries for {len(scored_sources)} sources")
+        for source in scored_sources:
+            if not source.get("summary"):  # Only generate if not already present
+                source["summary"] = await _generate_source_summary(source, query)
         
         # Insert sources
         stored = await insert_sources(session_id, scored_sources)
@@ -315,6 +387,60 @@ async def store_node(state: ResearchState) -> ResearchState:
         logger.error(f"Node store failed: {e}\n{traceback.format_exc()}")
         state["status"] = "failed"
         state["error"] = str(e)
+        return state
+
+
+@timed_node("images")
+async def images_node(state: ResearchState) -> ResearchState:
+    """
+    NODE 5.5: Fetch Google Images for the query.
+    
+    Searches Google Images and stores results in the database.
+    """
+    from app.services.serpapi_service import search_images
+    from app.db.neon_client import insert_images
+    from app.config import settings
+    
+    try:
+        session_id = state["session_id"]
+        refined_query = state.get("refined_query", state["original_query"])
+        language = state.get("language", "en")
+        
+        # Search for images
+        logger.info(f"Searching images for query: '{refined_query}', language: {language}")
+        images = await search_images(refined_query, num=6, language=language)
+        
+        logger.info(f"Image search returned {len(images)} results for '{refined_query}'")
+        
+        if not images:
+            logger.warning(f"Image search returned empty results for query: '{refined_query}'")
+            # In partial mock mode, provide fallback images
+            if settings.mock_mode == "partial":
+                logger.info("Generating fallback placeholder images for partial mock mode")
+                images = [
+                    {
+                        "url": f"https://picsum.photos/seed/{refined_query[:10]}{i}/800/600",
+                        "thumbnail": f"https://picsum.photos/seed/{refined_query[:10]}{i}/200/150",
+                        "title": f"Sample image {i+1} for {refined_query[:30]}",
+                        "domain": "sample.com",
+                        "source_url": "https://sample.com",
+                        "is_placeholder": True
+                    }
+                    for i in range(3)
+                ]
+        
+        if images:
+            # Store in database
+            await insert_images(session_id, images)
+            logger.info(f"Stored {len(images)} images for session {session_id}")
+        
+        state["images"] = images
+        return state
+        
+    except Exception as e:
+        logger.error(f"Node images failed: {e}\n{traceback.format_exc()}")
+        # Don't fail the entire pipeline for images
+        state["images"] = []
         return state
 
 
@@ -424,6 +550,108 @@ async def landscape_node(state: ResearchState) -> ResearchState:
         return state
 
 
+async def _generate_summary(
+    query: str,
+    report: str,
+    landscape: Dict[str, Any],
+    sources: List[Dict[str, Any]]
+) -> str:
+    """
+    Generate a 3-6 sentence executive summary.
+    
+    Tries to extract from report first, falls back to consensus-based generation.
+    """
+    from app.services.gemini_client import generate
+    from app.config import settings
+    
+    # Try to extract Summary section from report
+    if "## Summary" in report:
+        lines = report.split("\n")
+        summary_lines = []
+        in_summary = False
+        
+        for line in lines:
+            if line.strip() == "## Summary":
+                in_summary = True
+                continue
+            if in_summary:
+                if line.strip().startswith("##"):
+                    break
+                if line.strip():
+                    summary_lines.append(line.strip())
+        
+        if summary_lines:
+            summary = " ".join(summary_lines)
+            # Limit to 6 sentences
+            sentences = summary.split(". ")
+            if len(sentences) > 6:
+                summary = ". ".join(sentences[:6]) + "."
+            # Only return if it's long enough (>= 200 chars)
+            if len(summary) >= 200:
+                return summary
+            # Otherwise fall through to generate a new one
+    
+    # Generate from consensus claims - partial or full mock mode
+    if settings.is_llm_mocked:
+        consensus = landscape.get("consensus", [])
+        if consensus and len(consensus) >= 3:
+            # Extract top 4-5 consensus claims
+            top_claims = [c.get("claim_text", "") for c in consensus[:5]]
+            
+            # Calculate average credibility
+            avg_cred = sum(s.get("credibility_score", 0) for s in sources) / len(sources) if sources else 0
+            
+            # Build multi-sentence summary
+            sentences = []
+            if len(top_claims) >= 1:
+                sentences.append(top_claims[0])
+            if len(top_claims) >= 2:
+                sentences.append(f"Additionally, {top_claims[1].lower()}")
+            if len(top_claims) >= 3:
+                sentences.append(f"{top_claims[2]} also supports this finding")
+            if len(top_claims) >= 4:
+                sentences.append(f"The evidence consistently shows that {top_claims[3].lower()}")
+            
+            # Add concluding sentence with stats
+            sentences.append(
+                f"Overall, {len(sources)} sources with an average credibility score of "
+                f"{avg_cred:.1f} confirm these findings"
+            )
+            
+            summary = ". ".join(sentences) + "."
+            return summary
+        elif consensus:
+            # Fallback for fewer claims
+            claim_texts = [c.get("claim_text", "") for c in consensus[:3]]
+            return f"Based on {len(sources)} sources, {' '.join(claim_texts)}. The evidence shows moderate consensus across high-credibility sources."
+        
+        return f"Analysis of {len(sources)} sources provides insights into {query}. More research is needed for definitive conclusions."
+    
+    # Real LLM generation
+    consensus = landscape.get("consensus", [])
+    claim_texts = "\n".join([f"- {c.get('claim_text', '')}" for c in consensus[:5]])
+    
+    prompt = f"""Write a 3-6 sentence factual answer to this question based only on these findings. Prose only, no markdown or bullet points.
+
+Question: {query}
+
+Key Findings:
+{claim_texts if claim_texts else "Limited consensus findings available."}
+
+Source Count: {len(sources)} sources analyzed
+
+Write a clear, direct answer that synthesizes these findings."""
+    
+    try:
+        summary = await generate(prompt)
+        # Clean up any markdown
+        summary = summary.replace("#", "").replace("*", "").strip()
+        return summary
+    except Exception as e:
+        logger.warning(f"Failed to generate summary: {e}")
+        return f"Analysis of {len(sources)} sources provides insights into {query}."
+
+
 @timed_node("report")
 async def report_node(state: ResearchState) -> ResearchState:
     """
@@ -511,10 +739,16 @@ Based on analysis of {len(stored_sources)} sources, this report synthesizes the 
         state["final_report"] = report
         state["status"] = "complete"
         
-        # Update session status and final_report in DB
+        # Generate executive summary
+        session_id = state["session_id"]
+        summary = await _generate_summary(refined_query, report, landscape, stored_sources)
+        state["summary"] = summary
+        
+        # Update session status, final_report, and summary in DB
         try:
-            await update_session_status(state["session_id"], "complete")
-            await update_session_final_report(state["session_id"], report)
+            await update_session_status(session_id, "complete")
+            await update_session_final_report(session_id, report)
+            await update_session_summary(session_id, summary)
         except Exception as e:
             logger.warning(f"Failed to update session in database: {e}")
         
@@ -586,6 +820,7 @@ def build_research_graph() -> StateGraph:
     workflow.add_node("search", search_node)
     workflow.add_node("score", score_node)
     workflow.add_node("store", store_node)
+    workflow.add_node("images", images_node)
     workflow.add_node("extract", extract_node)
     workflow.add_node("conflict", conflict_node)
     workflow.add_node("landscape", landscape_node)
@@ -612,7 +847,8 @@ def build_research_graph() -> StateGraph:
     workflow.add_edge("plan", "search")
     workflow.add_edge("search", "score")
     workflow.add_edge("score", "store")
-    workflow.add_edge("store", "extract")
+    workflow.add_edge("store", "images")
+    workflow.add_edge("images", "extract")
     workflow.add_edge("extract", "conflict")
     workflow.add_edge("conflict", "landscape")
     workflow.add_edge("landscape", "report")
@@ -730,6 +966,7 @@ async def run_research_with_refinement(
     workflow.add_node("search", search_node)
     workflow.add_node("score", score_node)
     workflow.add_node("store", store_node)
+    workflow.add_node("images", images_node)  # Add images node
     workflow.add_node("extract", extract_node)
     workflow.add_node("conflict", conflict_node)
     workflow.add_node("landscape", landscape_node)
@@ -739,7 +976,8 @@ async def run_research_with_refinement(
     workflow.add_edge("plan", "search")
     workflow.add_edge("search", "score")
     workflow.add_edge("score", "store")
-    workflow.add_edge("store", "extract")
+    workflow.add_edge("store", "images")  # Add images edge
+    workflow.add_edge("images", "extract")  # Connect images to extract
     workflow.add_edge("extract", "conflict")
     workflow.add_edge("conflict", "landscape")
     workflow.add_edge("landscape", "report")

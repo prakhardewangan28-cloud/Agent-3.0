@@ -30,6 +30,7 @@ from app.db.neon_client import (
     get_session,
     get_sources_by_session,
     get_conflicts_by_session,
+    get_images_by_session,
     update_session_status,
 )
 from app.services import classify_information_landscape
@@ -156,17 +157,18 @@ async def start_research(request: ResearchStartRequest):
     If query is specific, starts research in background and returns immediately.
     
     Args:
-        request: Research start request with query
+        request: Research start request with query and language
     
     Returns:
         Session ID and either refinement options or in-progress status
     """
     query = request.query
-    logger.info(f"POST /api/v1/research/start  query={query[:50]}...")
+    language = request.language
+    logger.info(f"POST /api/v1/research/start  query={query[:50]}... language={language}")
     
     try:
         # Create session
-        session = await create_session(query)
+        session = await create_session(query, language=language)
         session_id = str(session["id"])  # Convert UUID to string
         logger.info(f"Session created: {session_id}")
         
@@ -266,6 +268,7 @@ async def get_research_results(session_id: str):
         # Fetch related data
         sources = await get_sources_by_session(session_id)
         conflicts = await get_conflicts_by_session(session_id)
+        images = await get_images_by_session(session_id)
         
         # Rebuild landscape
         try:
@@ -290,11 +293,14 @@ async def get_research_results(session_id: str):
             "status": session.get("status", "unknown"),
             "original_query": session.get("original_query", ""),
             "refined_query": session.get("refined_query"),
+            "language": session.get("language", "en"),
+            "summary": session.get("summary"),
             "sources": sources,
             "conflicts": conflicts,
             "landscape": landscape,
             "final_report": session.get("final_report") or "",  # Ensure it's a string, not None
             "counter_argument": session.get("counter_argument"),
+            "images": images,
             "node_timings": session.get("node_timings", {}),
             "error": session.get("error"),
         }

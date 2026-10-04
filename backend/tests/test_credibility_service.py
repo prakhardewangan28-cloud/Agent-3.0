@@ -36,8 +36,8 @@ def test_gov_domain_scores_higher_than_com():
 
 
 def test_trusted_domain_gets_bonus():
-    """Test that trusted domains get +25 points."""
-    trusted_source = {
+    """Test that academic domains get +60 points (nature.com is now academic)."""
+    academic_source = {
         "url": "https://nature.com/article",
         "domain": "nature.com",
         "title": "Scientific Discovery",
@@ -45,11 +45,11 @@ def test_trusted_domain_gets_bonus():
         "engine": "web"
     }
     
-    scored = score_source(trusted_source)
+    scored = score_source(academic_source)
     
-    assert "trusted_domain" in scored["score_breakdown"]
-    assert scored["score_breakdown"]["trusted_domain"] == 25
-    assert scored["credibility_score"] >= 25
+    assert "academic_domain" in scored["score_breakdown"]
+    assert scored["score_breakdown"]["academic_domain"] == 60
+    assert scored["credibility_score"] >= 60
 
 
 def test_low_trust_domain_gets_penalty():
@@ -103,10 +103,10 @@ def test_trusted_with_positives_clamps_to_hundred():
     scored = score_source(perfect_source)
     
     # Should have multiple bonuses:
-    # +25 (trusted) +10 (author) +5 (scholar) +15 (fresh) = 55
+    # +60 (academic) +10 (author) +5 (scholar) +15 (fresh) = 90
     # Even if we artificially boost it, it should clamp to 100
     assert scored["credibility_score"] <= 100.0
-    assert scored["score_breakdown"]["trusted_domain"] == 25
+    assert scored["score_breakdown"]["academic_domain"] == 60
     assert scored["score_breakdown"]["author_presence"] == 10
     assert scored["score_breakdown"]["scholar_bonus"] == 5
     assert scored["score_breakdown"]["freshness"] == 15
@@ -227,11 +227,11 @@ def test_batch_sorts_by_credibility_descending():
     for i in range(len(scored) - 1):
         assert scored[i]["credibility_score"] >= scored[i + 1]["credibility_score"]
     
+    # Nature.com gets: .com(0) + academic(+60) + scholar(+5) = 65
     # CDC.gov gets: .gov(+25) + trusted(+25) = 50
-    # Nature.com gets: .com(0) + trusted(+25) + scholar(+5) = 30
-    # So CDC should be highest
-    assert scored[0]["domain"] == "cdc.gov"
-    assert scored[0]["credibility_score"] == 50.0
+    # So Nature should be highest now
+    assert scored[0]["domain"] == "nature.com"
+    assert scored[0]["credibility_score"] == 65.0
 
 
 def test_batch_skips_invalid_sources():
